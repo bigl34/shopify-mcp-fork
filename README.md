@@ -1,6 +1,18 @@
-# Shopify MCP Server
+# Shopify MCP Server (Fork)
 
-(please leave a star if you like!)
+> **This is a fork of [GeLi2001/shopify-mcp](https://github.com/GeLi2001/shopify-mcp)** with enhanced order management fields.
+
+## Fork Enhancements
+
+This fork adds the following fields to order queries:
+
+- **`get-orders`**: Added `financial_status`, `fulfillment_status`, and additional line item fields
+- **`get-order-by-id`**: Added fulfillment details (ID, status, tracking info, estimated delivery)
+- **`get-customer-orders`**: Consistent enhanced field support
+
+### Original Project
+
+(please leave a star on the original if you like!)
 
 MCP Server for Shopify API, enabling interaction with store data through GraphQL API. This server provides tools for managing products, customers, orders, and more.
 

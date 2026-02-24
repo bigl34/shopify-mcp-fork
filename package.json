@@ -6,10 +6,11 @@
   "bin": "dist/index.js",
   "type": "module",
   "scripts": {
-    "build": "rimraf dist && tsc",
+    "build": "rimraf dist && tsc && chmod +x dist/index.js",
     "start": "node dist/index.js",
     "dev": "node --loader ts-node/esm src/index.ts",
-    "test": "jest",
+    "pretest": "npm run build",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand",
     "prepublishOnly": "npm run build",
     "lint": "eslint 'src/**/*.ts'",
     "clean": "rimraf dist"

@@ -22,6 +22,8 @@ import { manageProductVariants } from "./tools/manageProductVariants.js";
 import { deleteProductVariants } from "./tools/deleteProductVariants.js";
 import { deleteProduct } from "./tools/deleteProduct.js";
 import { manageProductOptions } from "./tools/manageProductOptions.js";
+import { createFulfillment } from "./tools/createFulfillment.js";
+import { updateFulfillmentTracking } from "./tools/updateFulfillmentTracking.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 
 // Parse command line arguments
@@ -112,6 +114,8 @@ manageProductVariants.initialize(shopifyClient);
 deleteProductVariants.initialize(shopifyClient);
 deleteProduct.initialize(shopifyClient);
 manageProductOptions.initialize(shopifyClient);
+createFulfillment.initialize(shopifyClient);
+updateFulfillmentTracking.initialize(shopifyClient);
 
 // Set up MCP server
 const server = new McpServer({
@@ -235,6 +239,50 @@ server.tool(
   },
   async (args) => {
     const result = await updateOrder.execute(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }]
+    };
+  }
+);
+
+// Add the createFulfillment tool
+server.tool(
+  "create-fulfillment",
+  {
+    orderNumber: z.string().min(1),
+    trackingNumber: z.string().min(1),
+    trackingCompany: z.string().default("UPS"),
+    trackingUrl: z.string().optional(),
+    notifyCustomer: z.boolean().default(false),
+    lineItems: z
+      .array(
+        z.object({
+          sku: z.string().min(1),
+          quantity: z.number().int().positive()
+        })
+      )
+      .optional()
+  },
+  async (args) => {
+    const result = await createFulfillment.execute(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }]
+    };
+  }
+);
+
+// Add the updateFulfillmentTracking tool
+server.tool(
+  "update-fulfillment-tracking",
+  {
+    fulfillmentId: z.string().min(1),
+    trackingNumber: z.string().min(1),
+    trackingCompany: z.string().optional(),
+    trackingUrl: z.string().optional(),
+    notifyCustomer: z.boolean().default(false)
+  },
+  async (args) => {
+    const result = await updateFulfillmentTracking.execute(args);
     return {
       content: [{ type: "text", text: JSON.stringify(result) }]
     };

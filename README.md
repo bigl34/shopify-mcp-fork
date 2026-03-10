@@ -322,6 +322,19 @@ shopify-mcp --clientId=<ID> --clientSecret=<SECRET> --domain=<YOUR_SHOP>.myshopi
      - `metafields` (array of objects, optional): Order metafields
      - `shippingAddress` (object, optional): Shipping address information
 
+4. `update-fulfillment-tracking`
+
+   - Update tracking details on an existing fulfillment
+   - Inputs:
+     - `fulfillmentId` (string, required): Fulfillment GID (e.g., `gid://shopify/Fulfillment/123`)
+     - `trackingNumber` (string, required): Tracking number to set
+     - `trackingCompany` (string, optional): Carrier name (e.g., `UPS`)
+     - `trackingUrl` (string, optional): Carrier tracking URL
+     - `notifyCustomer` (boolean, optional): Send tracking email to customer (default: `false`)
+   - Behavior:
+     - Uses Shopify's fulfillment tracking mutation and normalizes response as `fulfillment + notificationSent`
+     - Falls back to the V2 mutation variant only when schema compatibility requires it
+
 ## Debugging
 
 If you encounter issues, check Claude Desktop's MCP logs:

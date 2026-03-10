@@ -2,82 +2,107 @@ import type { GraphQLClient } from "graphql-request";
 import { gql } from "graphql-request";
 import { z } from "zod";
 
-// Input schema for createFulfillment
+// Will be initialized in index.ts
+let shopifyClient: GraphQLClient;
+
 const CreateFulfillmentInputSchema = z.object({
-  orderNumber: z.string().min(1).describe("Order number (e.g., '1234' or '#1234')"),
-  trackingNumber: z.string().min(1).describe("Tracking number"),
-  trackingCompany: z.string().default("UPS").describe("Carrier name"),
-  trackingUrl: z.string().optional().describe("Tracking URL (auto-generated for UPS if omitted)"),
-  notifyCustomer: z.boolean().default(false).describe("Send notification email to customer"),
-  lineItems: z.array(z.object({
-    sku: z.string().describe("SKU of the item to fulfill"),
-    quantity: z.number().int().positive().describe("Quantity to fulfill"),
-  })).optional().describe("Specific items to fulfill (omit to fulfill all remaining items)"),
+  orderNumber: z.string().min(1),
+  trackingNumber: z.string().min(1),
+  trackingCompany: z.string().default("UPS"),
+  trackingUrl: z.string().optional(),
+  notifyCustomer: z.boolean().default(false),
+  lineItems: z
+    .array(
+      z.object({
+        sku: z.string().min(1),
+        quantity: z.number().int().positive()
+      })
+    )
+    .optional()
 });
 
 type CreateFulfillmentInput = z.infer<typeof CreateFulfillmentInputSchema>;
 
-// Will be initialized in index.ts
-let shopifyClient: GraphQLClient;
+type FulfillmentOrderLineItemNode = {
+  id: string;
+  remainingQuantity: number;
+  lineItem: {
+    sku: string | null;
+    title: string | null;
+  } | null;
+};
 
-const FIND_ORDER_QUERY = gql`
-  query FindOrderForFulfillment($query: String!) {
-    orders(first: 3, sortKey: PROCESSED_AT, reverse: true, query: $query) {
-      edges {
-        node {
-          id
-          name
-          displayFulfillmentStatus
-          fulfillmentOrders(first: 10) {
-            edges {
-              node {
-                id
-                status
-                supportedActions { action }
-                lineItems(first: 50) {
-                  edges {
-                    node {
-                      id
-                      remainingQuantity
-                      lineItem {
-                        sku
-                        title
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+type FulfillmentOrderNode = {
+  id: string;
+  status: string;
+  supportedActions: Array<{ action: string }>;
+  lineItems: {
+    edges: Array<{ node: FulfillmentOrderLineItemNode }>;
+  };
+};
+
+type OrderNode = {
+  id: string;
+  name: string;
+  displayFulfillmentStatus: string;
+  fulfillmentOrders: {
+    edges: Array<{ node: FulfillmentOrderNode }>;
+  };
+};
+
+type FindOrderResponse = {
+  orders: {
+    edges: Array<{ node: OrderNode }>;
+  };
+};
+
+type FulfillmentCreateResponse = {
+  fulfillmentCreateV2: {
+    fulfillment: {
+      id: string;
+      status: string;
+      trackingInfo: Array<{
+        company: string | null;
+        number: string | null;
+        url: string | null;
+      }>;
+    } | null;
+    userErrors: Array<{
+      field: string[] | null;
+      message: string;
+    }>;
+  };
+};
+
+function normalizeOrderCandidates(orderNumber: string): string[] {
+  const raw = orderNumber.trim();
+  const cleaned = raw
+    .replace(/^#/, "")
+    .replace(/^\D+[-_]?/i, "");
+  const digits = cleaned.match(/\d+/)?.[0] ?? "";
+
+  const candidates = new Set<string>();
+
+  if (digits) {
+    candidates.add(digits);
+
+    // Some stores use 4-digit order numbers that map to 5-digit Shopify names.
+    if (/^\d{4}$/.test(digits)) {
+      candidates.add(`${digits}1`);
     }
   }
-`;
 
-const FULFILLMENT_CREATE_MUTATION = gql`
-  mutation fulfillmentCreateV2($fulfillment: FulfillmentV2Input!) {
-    fulfillmentCreateV2(fulfillment: $fulfillment) {
-      fulfillment {
-        id
-        status
-        trackingInfo {
-          company
-          number
-          url
-        }
-      }
-      userErrors {
-        field
-        message
-      }
-    }
-  }
-`;
+  return Array.from(candidates);
+}
+
+function extractOrderDigits(orderName: string): string {
+  const match = orderName.match(/\d+/g);
+  return match ? match.join("") : "";
+}
 
 const createFulfillment = {
   name: "create-fulfillment",
-  description: "Create a fulfillment with tracking for a Shopify order",
+  description: "Create fulfillment with tracking for an order",
   schema: CreateFulfillmentInputSchema,
 
   initialize(client: GraphQLClient) {
@@ -86,160 +111,345 @@ const createFulfillment = {
 
   execute: async (input: CreateFulfillmentInput) => {
     try {
-      const { orderNumber, trackingNumber, trackingCompany, trackingUrl, notifyCustomer, lineItems } = input;
+      const {
+        orderNumber,
+        trackingNumber,
+        trackingCompany,
+        trackingUrl,
+        notifyCustomer,
+        lineItems
+      } = input;
 
-      // Step 1: Normalize order number and find the order
-      const cleanNumber = orderNumber.replace(/^#?\D*/i, "") || orderNumber.replace(/^#/, "");
-      const queryStr = `name:#${cleanNumber}`;
-
-      const data = (await shopifyClient.request(FIND_ORDER_QUERY, { query: queryStr })) as {
-        orders: { edges: Array<{ node: any }> };
-      };
-
-      if (!data.orders.edges.length) {
-        throw new Error(`Order #${cleanNumber} not found`);
+      const candidates = normalizeOrderCandidates(orderNumber);
+      if (candidates.length === 0) {
+        throw new Error(`Invalid order number: ${orderNumber}`);
       }
 
-      // Match order name ending with the clean number (handles any store prefix)
-      const orderNode = data.orders.edges.find(
-        (e) => e.node.name.endsWith(cleanNumber)
-      )?.node || data.orders.edges[0].node;
-
-      // Step 2: Filter fulfillment orders to eligible ones
-      const fulfillmentOrders = orderNode.fulfillmentOrders.edges.map((e: any) => e.node);
-      const skippedReasons: string[] = [];
-      const eligible: any[] = [];
-
-      for (const fo of fulfillmentOrders) {
-        const actions = (fo.supportedActions || []).map((a: any) => a.action);
-        if (actions.includes("CREATE_FULFILLMENT")) {
-          eligible.push(fo);
-        } else if (fo.status === "ON_HOLD") {
-          skippedReasons.push(`Fulfillment order ${fo.id} is on hold — release hold in Shopify first`);
-        } else if (fo.status === "SCHEDULED") {
-          skippedReasons.push(`Fulfillment order ${fo.id} is scheduled — not yet eligible`);
-        }
-        // CLOSED/CANCELLED — skip silently
-      }
-
-      if (eligible.length === 0) {
-        return {
-          alreadyFulfilled: true,
-          message: skippedReasons.length > 0
-            ? `No eligible fulfillment orders. ${skippedReasons.join(". ")}`
-            : "Order already fulfilled",
-          orderName: orderNode.name,
-        };
-      }
-
-      // Step 3: Build tracking info
-      let resolvedTrackingUrl = trackingUrl;
-      if (!resolvedTrackingUrl && trackingCompany.toUpperCase() === "UPS") {
-        resolvedTrackingUrl = `https://www.ups.com/track?tracknum=${trackingNumber}`;
-      }
-
-      const trackingInfo: { company: string; number: string; url?: string } = {
-        company: trackingCompany,
-        number: trackingNumber,
-      };
-      if (resolvedTrackingUrl) {
-        trackingInfo.url = resolvedTrackingUrl;
-      }
-
-      // Step 4: Create fulfillment for each eligible fulfillment order
-      const fulfillments: any[] = [];
-      let isPartial = false;
-
-      for (const fo of eligible) {
-        const foLineItems = fo.lineItems.edges.map((e: any) => e.node);
-
-        // Build the fulfillment order entry
-        const entry: any = {
-          fulfillmentOrderId: fo.id,
-        };
-
-        if (lineItems && lineItems.length > 0) {
-          // Specific items requested — match by SKU
-          const matchedLineItems: Array<{ id: string; quantity: number }> = [];
-
-          for (const requested of lineItems) {
-            const foItem = foLineItems.find(
-              (item: any) => item.lineItem?.sku === requested.sku
-            );
-            if (!foItem) continue; // SKU not in this fulfillment order — try next FO
-            if (requested.quantity > foItem.remainingQuantity) {
-              throw new Error(
-                `Requested quantity ${requested.quantity} for SKU ${requested.sku} exceeds remaining quantity ${foItem.remainingQuantity}`
-              );
+      const findOrderQuery = gql`
+        query FindOrderForFulfillment($query: String!) {
+          orders(first: 5, sortKey: PROCESSED_AT, reverse: true, query: $query) {
+            edges {
+              node {
+                id
+                name
+                displayFulfillmentStatus
+                fulfillmentOrders(first: 10) {
+                  edges {
+                    node {
+                      id
+                      status
+                      supportedActions {
+                        action
+                      }
+                      lineItems(first: 50) {
+                        edges {
+                          node {
+                            id
+                            remainingQuantity
+                            lineItem {
+                              sku
+                              title
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
-            matchedLineItems.push({
-              id: foItem.id,
-              quantity: requested.quantity,
-            });
+          }
+        }
+      `;
+
+      let selectedOrder: OrderNode | null = null;
+      const attemptedQueries: string[] = [];
+
+      for (const candidate of candidates) {
+        const queryFilter = `name:${candidate}`;
+        attemptedQueries.push(queryFilter);
+
+        const data = (await shopifyClient.request(findOrderQuery, {
+          query: queryFilter
+        })) as FindOrderResponse;
+
+        const orders = data.orders.edges.map((edge) => edge.node);
+        const matchedOrder =
+          orders.find((order) => extractOrderDigits(order.name) === candidate) ??
+          null;
+
+        if (matchedOrder) {
+          selectedOrder = matchedOrder;
+          break;
+        }
+
+        if (!selectedOrder && orders.length === 1) {
+          selectedOrder = orders[0];
+          break;
+        }
+      }
+
+      if (!selectedOrder) {
+        throw new Error(
+          `Order ${orderNumber} not found. Tried queries: ${attemptedQueries.join(", ")}`
+        );
+      }
+
+      const fulfillmentOrders =
+        selectedOrder.fulfillmentOrders?.edges?.map((edge) => edge.node) ?? [];
+
+      if (fulfillmentOrders.length === 0) {
+        return {
+          orderId: selectedOrder.id,
+          orderName: selectedOrder.name,
+          alreadyFulfilled: true,
+          message: "Order already fulfilled"
+        };
+      }
+
+      const eligibleFulfillmentOrders: FulfillmentOrderNode[] = [];
+      const blockingMessages: string[] = [];
+
+      for (const fulfillmentOrder of fulfillmentOrders) {
+        const actions =
+          fulfillmentOrder.supportedActions?.map((action) => action.action) ?? [];
+
+        if (actions.includes("CREATE_FULFILLMENT")) {
+          eligibleFulfillmentOrders.push(fulfillmentOrder);
+          continue;
+        }
+
+        if (fulfillmentOrder.status === "ON_HOLD") {
+          blockingMessages.push(
+            `Fulfillment order ${fulfillmentOrder.id} is on hold (release hold in Shopify first)`
+          );
+          continue;
+        }
+
+        if (fulfillmentOrder.status === "SCHEDULED") {
+          blockingMessages.push(
+            `Fulfillment order ${fulfillmentOrder.id} is scheduled and not yet eligible`
+          );
+        }
+      }
+
+      if (eligibleFulfillmentOrders.length === 0) {
+        if (blockingMessages.length > 0) {
+          return {
+            orderId: selectedOrder.id,
+            orderName: selectedOrder.name,
+            alreadyFulfilled: false,
+            blocked: true,
+            message: blockingMessages.join("; "),
+            blockingReasons: blockingMessages
+          };
+        }
+
+        return {
+          orderId: selectedOrder.id,
+          orderName: selectedOrder.name,
+          alreadyFulfilled: true,
+          message: "Order already fulfilled"
+        };
+      }
+
+      const autoTrackingUrl =
+        !trackingUrl && trackingCompany.toUpperCase() === "UPS"
+          ? `https://www.ups.com/track?tracknum=${encodeURIComponent(trackingNumber)}`
+          : undefined;
+
+      const effectiveTrackingUrl = trackingUrl ?? autoTrackingUrl;
+
+      const allocations = new Map<
+        string,
+        Array<{ id: string; quantity: number; sku: string }>
+      >();
+      const consumedByLineItemId = new Map<string, number>();
+
+      if (lineItems && lineItems.length > 0) {
+        for (const requestedItem of lineItems) {
+          let remainingRequested = requestedItem.quantity;
+
+          for (const fulfillmentOrder of eligibleFulfillmentOrders) {
+            if (remainingRequested <= 0) {
+              break;
+            }
+
+            const orderLineItems =
+              fulfillmentOrder.lineItems?.edges?.map((edge) => edge.node) ?? [];
+
+            for (const lineItem of orderLineItems) {
+              if (remainingRequested <= 0) {
+                break;
+              }
+
+              const sku = lineItem.lineItem?.sku;
+              if (!sku || sku !== requestedItem.sku) {
+                continue;
+              }
+
+              const previouslyConsumed =
+                consumedByLineItemId.get(lineItem.id) ?? 0;
+              const available = Math.max(
+                0,
+                Number(lineItem.remainingQuantity) - previouslyConsumed
+              );
+
+              if (available <= 0) {
+                continue;
+              }
+
+              const quantityToAllocate = Math.min(available, remainingRequested);
+              if (quantityToAllocate <= 0) {
+                continue;
+              }
+
+              consumedByLineItemId.set(
+                lineItem.id,
+                previouslyConsumed + quantityToAllocate
+              );
+
+              if (!allocations.has(fulfillmentOrder.id)) {
+                allocations.set(fulfillmentOrder.id, []);
+              }
+
+              allocations.get(fulfillmentOrder.id)!.push({
+                id: lineItem.id,
+                quantity: quantityToAllocate,
+                sku
+              });
+
+              remainingRequested -= quantityToAllocate;
+            }
           }
 
-          if (matchedLineItems.length === 0) continue; // No matching items in this FO
-
-          entry.fulfillmentOrderLineItems = matchedLineItems;
-          isPartial = true;
+          if (remainingRequested > 0) {
+            throw new Error(
+              `Requested quantity exceeds fulfillable inventory for SKU ${requestedItem.sku} (missing ${remainingRequested})`
+            );
+          }
         }
-        // If lineItems omitted → omit fulfillmentOrderLineItems (fulfills all remaining)
+      }
 
-        const variables = {
+      const fulfillmentMutation = gql`
+        mutation fulfillmentCreateV2($fulfillment: FulfillmentV2Input!) {
+          fulfillmentCreateV2(fulfillment: $fulfillment) {
+            fulfillment {
+              id
+              status
+              trackingInfo {
+                company
+                number
+                url
+              }
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }
+      `;
+
+      const createdFulfillments: Array<{
+        fulfillmentOrderId: string;
+        id: string;
+        status: string;
+        trackingInfo: Array<{
+          company: string | null;
+          number: string | null;
+          url: string | null;
+        }>;
+      }> = [];
+
+      for (const fulfillmentOrder of eligibleFulfillmentOrders) {
+        const specificLineItems = allocations.get(fulfillmentOrder.id) ?? [];
+
+        // If specific line items were requested, skip fulfillment orders that have no allocated lines.
+        if (lineItems && lineItems.length > 0 && specificLineItems.length === 0) {
+          continue;
+        }
+
+        const lineItemsByFulfillmentOrder: Array<{
+          fulfillmentOrderId: string;
+          fulfillmentOrderLineItems?: Array<{ id: string; quantity: number }>;
+        }> = [
+          {
+            fulfillmentOrderId: fulfillmentOrder.id,
+            ...(lineItems && lineItems.length > 0
+              ? {
+                  fulfillmentOrderLineItems: specificLineItems.map((item) => ({
+                    id: item.id,
+                    quantity: item.quantity
+                  }))
+                }
+              : {})
+          }
+        ];
+
+        const trackingInfo: {
+          company: string;
+          number: string;
+          url?: string;
+        } = {
+          company: trackingCompany,
+          number: trackingNumber
+        };
+
+        if (effectiveTrackingUrl) {
+          trackingInfo.url = effectiveTrackingUrl;
+        }
+
+        const mutationVariables = {
           fulfillment: {
-            lineItemsByFulfillmentOrder: [entry],
+            lineItemsByFulfillmentOrder,
             trackingInfo,
-            notifyCustomer,
-          },
+            notifyCustomer
+          }
         };
 
-        const result = (await shopifyClient.request(FULFILLMENT_CREATE_MUTATION, variables)) as {
-          fulfillmentCreateV2: {
-            fulfillment: any;
-            userErrors: Array<{ field: string[]; message: string }>;
-          };
-        };
+        const mutationResponse = (await shopifyClient.request(
+          fulfillmentMutation,
+          mutationVariables
+        )) as FulfillmentCreateResponse;
 
-        const mutationResult = result.fulfillmentCreateV2;
-
-        if (mutationResult.userErrors && mutationResult.userErrors.length > 0) {
-          const errorMessages = mutationResult.userErrors
-            .map((e) => `${e.field?.join(".") || "unknown"}: ${e.message}`)
-            .join("; ");
-          throw new Error(`Shopify API errors: ${errorMessages}`);
+        const userErrors = mutationResponse.fulfillmentCreateV2.userErrors ?? [];
+        if (userErrors.length > 0) {
+          const errorText = userErrors
+            .map((error) => {
+              const field =
+                Array.isArray(error.field) && error.field.length > 0
+                  ? `${error.field.join(".")}: `
+                  : "";
+              return `${field}${error.message}`;
+            })
+            .join(", ");
+          throw new Error(`Shopify fulfillmentCreateV2 error: ${errorText}`);
         }
 
-        if (mutationResult.fulfillment) {
-          fulfillments.push({
-            id: mutationResult.fulfillment.id,
-            status: mutationResult.fulfillment.status,
-            trackingInfo: (mutationResult.fulfillment.trackingInfo || []).map((t: any) => ({
-              company: t.company,
-              number: t.number,
-              url: t.url,
-            })),
+        const fulfillment = mutationResponse.fulfillmentCreateV2.fulfillment;
+        if (fulfillment) {
+          createdFulfillments.push({
+            fulfillmentOrderId: fulfillmentOrder.id,
+            id: fulfillment.id,
+            status: fulfillment.status,
+            trackingInfo: fulfillment.trackingInfo ?? []
           });
         }
       }
 
-      if (fulfillments.length === 0) {
-        // lineItems were specified but none matched any eligible FO
-        if (lineItems && lineItems.length > 0) {
-          const requestedSkus = lineItems.map((i) => i.sku).join(", ");
-          throw new Error(`No matching items found for SKUs: ${requestedSkus}`);
-        }
-        return {
-          alreadyFulfilled: true,
-          message: "No items to fulfill",
-          orderName: orderNode.name,
-        };
+      if (createdFulfillments.length === 0) {
+        throw new Error(
+          "No fulfillment was created. Check selected line items and fulfillment order eligibility."
+        );
       }
 
       return {
-        fulfillments,
-        orderName: orderNode.name,
+        orderId: selectedOrder.id,
+        orderName: selectedOrder.name,
         notificationSent: notifyCustomer,
-        partial: isPartial,
+        partial: !!lineItems && lineItems.length > 0,
+        fulfillments: createdFulfillments
       };
     } catch (error) {
       console.error("Error creating fulfillment:", error);
@@ -249,7 +459,7 @@ const createFulfillment = {
         }`
       );
     }
-  },
+  }
 };
 
 export { createFulfillment };

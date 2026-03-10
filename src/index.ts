@@ -23,8 +23,8 @@ import { deleteProductVariants } from "./tools/deleteProductVariants.js";
 import { deleteProduct } from "./tools/deleteProduct.js";
 import { manageProductOptions } from "./tools/manageProductOptions.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
-import { updateFulfillmentTracking } from "./tools/updateFulfillmentTracking.js";
 import { createFulfillment } from "./tools/createFulfillment.js";
+import { updateFulfillmentTracking } from "./tools/updateFulfillmentTracking.js";
 import { createReturn } from "./tools/createReturn.js";
 import { createReverseDelivery } from "./tools/createReverseDelivery.js";
 
@@ -128,8 +128,8 @@ manageProductVariants.initialize(shopifyClient);
 deleteProductVariants.initialize(shopifyClient);
 deleteProduct.initialize(shopifyClient);
 manageProductOptions.initialize(shopifyClient);
-updateFulfillmentTracking.initialize(shopifyClient);
 createFulfillment.initialize(shopifyClient);
+updateFulfillmentTracking.initialize(shopifyClient);
 createReturn.initialize(shopifyClient);
 createReverseDelivery.initialize(shopifyClient202407);
 
@@ -257,6 +257,50 @@ server.tool(
   },
   async (args) => {
     const result = await updateOrder.execute(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }]
+    };
+  }
+);
+
+// Add the createFulfillment tool
+server.tool(
+  "create-fulfillment",
+  {
+    orderNumber: z.string().min(1),
+    trackingNumber: z.string().min(1),
+    trackingCompany: z.string().default("UPS"),
+    trackingUrl: z.string().optional(),
+    notifyCustomer: z.boolean().default(false),
+    lineItems: z
+      .array(
+        z.object({
+          sku: z.string().min(1),
+          quantity: z.number().int().positive()
+        })
+      )
+      .optional()
+  },
+  async (args) => {
+    const result = await createFulfillment.execute(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }]
+    };
+  }
+);
+
+// Add the updateFulfillmentTracking tool
+server.tool(
+  "update-fulfillment-tracking",
+  {
+    fulfillmentId: z.string().min(1),
+    trackingNumber: z.string().min(1),
+    trackingCompany: z.string().optional(),
+    trackingUrl: z.string().optional(),
+    notifyCustomer: z.boolean().default(false)
+  },
+  async (args) => {
+    const result = await updateFulfillmentTracking.execute(args);
     return {
       content: [{ type: "text", text: JSON.stringify(result) }]
     };
@@ -405,26 +449,6 @@ server.tool(
   }
 );
 
-// Add the updateFulfillmentTracking tool
-server.tool(
-  "update-fulfillment-tracking",
-  {
-    fulfillmentId: z.string().min(1).describe("The fulfillment ID (gid://shopify/Fulfillment/...)"),
-    trackingNumber: z.string().optional().describe("Single tracking number (convenience alias)"),
-    trackingNumbers: z.array(z.string()).optional().describe("Tracking number(s) for the shipment"),
-    trackingUrl: z.string().optional().describe("Single tracking URL (convenience alias)"),
-    trackingUrls: z.array(z.string()).optional().describe("Tracking URL(s) - if omitted, Shopify auto-generates from carrier"),
-    trackingCompany: z.string().optional().describe("Carrier name (e.g., 'UPS', 'Royal Mail', 'DPD')"),
-    notifyCustomer: z.boolean().default(false).describe("Whether to send tracking notification email to customer")
-  },
-  async (args) => {
-    const result = await updateFulfillmentTracking.execute(args);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result) }]
-    };
-  }
-);
-
 // Add the manageProductVariants tool
 server.tool(
   "manage-product-variants",
@@ -463,28 +487,6 @@ server.tool(
     const result = await manageProductVariants.execute(args);
     return {
       content: [{ type: "text", text: JSON.stringify(result) }],
-    };
-  }
-);
-
-// Add the createFulfillment tool
-server.tool(
-  "create-fulfillment",
-  {
-    orderNumber: z.string().min(1).describe("Order number (e.g., '1234' or '#1234')"),
-    trackingNumber: z.string().min(1).describe("Tracking number"),
-    trackingCompany: z.string().default("UPS").describe("Carrier name"),
-    trackingUrl: z.string().optional().describe("Tracking URL (auto-generated for UPS if omitted)"),
-    notifyCustomer: z.boolean().default(false).describe("Send notification email to customer"),
-    lineItems: z.array(z.object({
-      sku: z.string().describe("SKU of the item to fulfill"),
-      quantity: z.number().int().positive().describe("Quantity to fulfill"),
-    })).optional().describe("Specific items to fulfill (omit to fulfill all remaining items)"),
-  },
-  async (args) => {
-    const result = await createFulfillment.execute(args);
-    return {
-      content: [{ type: "text", text: JSON.stringify(result) }]
     };
   }
 );

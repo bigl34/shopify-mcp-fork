@@ -23,6 +23,10 @@ import { deleteProductVariants } from "./tools/deleteProductVariants.js";
 import { deleteProduct } from "./tools/deleteProduct.js";
 import { manageProductOptions } from "./tools/manageProductOptions.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
+import { updateFulfillmentTracking } from "./tools/updateFulfillmentTracking.js";
+import { createFulfillment } from "./tools/createFulfillment.js";
+import { createReturn } from "./tools/createReturn.js";
+import { createReverseDelivery } from "./tools/createReverseDelivery.js";
 
 // Parse command line arguments
 const argv = minimist(process.argv.slice(2));
@@ -97,6 +101,18 @@ if (auth) {
   auth.setGraphQLClient(shopifyClient);
 }
 
+// Create a separate client with 2024-07 API version for newer mutations
+// (reverseDeliveryCreateWithShipping requires 2024-01+)
+const shopifyClient202407 = new GraphQLClient(
+  `https://${MYSHOPIFY_DOMAIN}/admin/api/2024-07/graphql.json`,
+  {
+    headers: {
+      "X-Shopify-Access-Token": accessToken,
+      "Content-Type": "application/json"
+    }
+  }
+);
+
 // Initialize tools with shopifyClient
 getProducts.initialize(shopifyClient);
 getProductById.initialize(shopifyClient);
@@ -112,6 +128,10 @@ manageProductVariants.initialize(shopifyClient);
 deleteProductVariants.initialize(shopifyClient);
 deleteProduct.initialize(shopifyClient);
 manageProductOptions.initialize(shopifyClient);
+updateFulfillmentTracking.initialize(shopifyClient);
+createFulfillment.initialize(shopifyClient);
+createReturn.initialize(shopifyClient);
+createReverseDelivery.initialize(shopifyClient202407);
 
 // Set up MCP server
 const server = new McpServer({
@@ -167,7 +187,9 @@ server.tool(
   "get-orders",
   {
     status: z.enum(["any", "open", "closed", "cancelled"]).default("any"),
-    limit: z.number().default(10)
+    limit: z.number().default(10),
+    sortKey: z.enum(["CREATED_AT", "UPDATED_AT", "TOTAL_PRICE", "ID", "CUSTOMER_NAME"]).default("CREATED_AT"),
+    reverse: z.boolean().default(true)  // true = newest first
   },
   async (args) => {
     const result = await getOrders.execute(args);
@@ -383,6 +405,26 @@ server.tool(
   }
 );
 
+// Add the updateFulfillmentTracking tool
+server.tool(
+  "update-fulfillment-tracking",
+  {
+    fulfillmentId: z.string().min(1).describe("The fulfillment ID (gid://shopify/Fulfillment/...)"),
+    trackingNumber: z.string().optional().describe("Single tracking number (convenience alias)"),
+    trackingNumbers: z.array(z.string()).optional().describe("Tracking number(s) for the shipment"),
+    trackingUrl: z.string().optional().describe("Single tracking URL (convenience alias)"),
+    trackingUrls: z.array(z.string()).optional().describe("Tracking URL(s) - if omitted, Shopify auto-generates from carrier"),
+    trackingCompany: z.string().optional().describe("Carrier name (e.g., 'UPS', 'Royal Mail', 'DPD')"),
+    notifyCustomer: z.boolean().default(false).describe("Whether to send tracking notification email to customer")
+  },
+  async (args) => {
+    const result = await updateFulfillmentTracking.execute(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }]
+    };
+  }
+);
+
 // Add the manageProductVariants tool
 server.tool(
   "manage-product-variants",
@@ -425,6 +467,28 @@ server.tool(
   }
 );
 
+// Add the createFulfillment tool
+server.tool(
+  "create-fulfillment",
+  {
+    orderNumber: z.string().min(1).describe("Order number (e.g., '1234' or '#1234')"),
+    trackingNumber: z.string().min(1).describe("Tracking number"),
+    trackingCompany: z.string().default("UPS").describe("Carrier name"),
+    trackingUrl: z.string().optional().describe("Tracking URL (auto-generated for UPS if omitted)"),
+    notifyCustomer: z.boolean().default(false).describe("Send notification email to customer"),
+    lineItems: z.array(z.object({
+      sku: z.string().describe("SKU of the item to fulfill"),
+      quantity: z.number().int().positive().describe("Quantity to fulfill"),
+    })).optional().describe("Specific items to fulfill (omit to fulfill all remaining items)"),
+  },
+  async (args) => {
+    const result = await createFulfillment.execute(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }]
+    };
+  }
+);
+
 // Add the manageProductOptions tool
 server.tool(
   "manage-product-options",
@@ -456,6 +520,29 @@ server.tool(
   }
 );
 
+// Add the createReturn tool
+server.tool(
+  "create-return",
+  {
+    orderNumber: z.string().min(1).describe("Order number (e.g., '14901' or '#14901')"),
+    lineItems: z.array(z.object({
+      sku: z.string().describe("SKU of the item to return"),
+      quantity: z.number().int().positive().describe("Quantity to return"),
+    })).optional().describe("Specific items to return (omit to return all returnable items)"),
+    returnReason: z.enum([
+      "DEFECTIVE", "WRONG_ITEM", "STYLE", "SIZE_TOO_SMALL",
+      "SIZE_TOO_LARGE", "UNWANTED", "OTHER", "UNKNOWN", "COLOR",
+    ]).default("OTHER").describe("Reason for return"),
+    notifyCustomer: z.boolean().default(false).describe("Send notification email to customer"),
+  },
+  async (args) => {
+    const result = await createReturn.execute(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }]
+    };
+  }
+);
+
 // Add the deleteProduct tool
 server.tool(
   "delete-product",
@@ -481,6 +568,23 @@ server.tool(
     const result = await deleteProductVariants.execute(args);
     return {
       content: [{ type: "text", text: JSON.stringify(result) }],
+    };
+  }
+);
+
+// Add the createReverseDelivery tool
+server.tool(
+  "create-reverse-delivery",
+  {
+    returnId: z.string().min(1).describe("Return GID (gid://shopify/Return/...)"),
+    trackingNumber: z.string().min(1).describe("Tracking number for the return shipment"),
+    trackingCompany: z.string().default("UPS").describe("Carrier name"),
+    trackingUrl: z.string().optional().describe("Tracking URL (auto-generated for UPS if omitted)"),
+  },
+  async (args) => {
+    const result = await createReverseDelivery.execute(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }]
     };
   }
 );

@@ -93,6 +93,17 @@ const getCustomerOrders = {
                 }
                 tags
                 note
+                fulfillments(first: 5) {
+                  id
+                  status
+                  displayStatus
+                  createdAt
+                  trackingInfo {
+                    company
+                    number
+                    url
+                  }
+                }
               }
             }
           }
@@ -131,6 +142,19 @@ const getCustomerOrders = {
           };
         });
 
+        // Format fulfillments
+        const fulfillments = (order.fulfillments || []).map((fulfillment: any) => ({
+          id: fulfillment.id,
+          status: fulfillment.status,
+          displayStatus: fulfillment.displayStatus,
+          createdAt: fulfillment.createdAt,
+          trackingInfo: (fulfillment.trackingInfo || []).map((tracking: any) => ({
+            company: tracking.company,
+            number: tracking.number,
+            url: tracking.url
+          }))
+        }));
+
         return {
           id: order.id,
           name: order.name,
@@ -151,7 +175,8 @@ const getCustomerOrders = {
             : null,
           lineItems,
           tags: order.tags,
-          note: order.note
+          note: order.note,
+          fulfillments
         };
       });
 

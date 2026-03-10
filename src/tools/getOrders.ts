@@ -5,7 +5,9 @@ import { z } from "zod";
 // Input schema for getOrders
 const GetOrdersInputSchema = z.object({
   status: z.enum(["any", "open", "closed", "cancelled"]).default("any"),
-  limit: z.number().default(10)
+  limit: z.number().default(10),
+  sortKey: z.enum(["CREATED_AT", "UPDATED_AT", "TOTAL_PRICE", "ID", "CUSTOMER_NAME"]).default("CREATED_AT"),
+  reverse: z.boolean().default(true)  // true = newest first (descending)
 });
 
 type GetOrdersInput = z.infer<typeof GetOrdersInputSchema>;
@@ -25,7 +27,7 @@ const getOrders = {
 
   execute: async (input: GetOrdersInput) => {
     try {
-      const { status, limit } = input;
+      const { status, limit, sortKey, reverse } = input;
 
       // Build query filters
       let queryFilter = "";
@@ -34,8 +36,8 @@ const getOrders = {
       }
 
       const query = gql`
-        query GetOrders($first: Int!, $query: String) {
-          orders(first: $first, query: $query) {
+        query GetOrders($first: Int!, $query: String, $sortKey: OrderSortKeys, $reverse: Boolean) {
+          orders(first: $first, query: $query, sortKey: $sortKey, reverse: $reverse) {
             edges {
               node {
                 id
@@ -104,6 +106,17 @@ const getOrders = {
                 }
                 tags
                 note
+                fulfillments(first: 5) {
+                  id
+                  status
+                  displayStatus
+                  createdAt
+                  trackingInfo {
+                    company
+                    number
+                    url
+                  }
+                }
               }
             }
           }
@@ -112,7 +125,9 @@ const getOrders = {
 
       const variables = {
         first: limit,
-        query: queryFilter || undefined
+        query: queryFilter || undefined,
+        sortKey,
+        reverse
       };
 
       const data = (await shopifyClient.request(query, variables)) as {
@@ -141,6 +156,19 @@ const getOrders = {
           };
         });
 
+        // Format fulfillments
+        const fulfillments = (order.fulfillments || []).map((fulfillment: any) => ({
+          id: fulfillment.id,
+          status: fulfillment.status,
+          displayStatus: fulfillment.displayStatus,
+          createdAt: fulfillment.createdAt,
+          trackingInfo: (fulfillment.trackingInfo || []).map((tracking: any) => ({
+            company: tracking.company,
+            number: tracking.number,
+            url: tracking.url
+          }))
+        }));
+
         return {
           id: order.id,
           name: order.name,
@@ -162,7 +190,8 @@ const getOrders = {
           shippingAddress: order.shippingAddress,
           lineItems,
           tags: order.tags,
-          note: order.note
+          note: order.note,
+          fulfillments
         };
       });
 

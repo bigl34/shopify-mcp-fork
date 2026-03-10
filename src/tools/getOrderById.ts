@@ -107,6 +107,38 @@ const getOrderById = {
                 }
               }
             }
+            fulfillments {
+              id
+              status
+              displayStatus
+              createdAt
+              estimatedDeliveryAt
+              trackingInfo {
+                company
+                number
+                url
+              }
+            }
+            fulfillmentOrders(first: 10) {
+              edges {
+                node {
+                  id
+                  status
+                  lineItems(first: 50) {
+                    edges {
+                      node {
+                        id
+                        remainingQuantity
+                        lineItem {
+                          sku
+                          title
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       `;
@@ -156,6 +188,38 @@ const getOrderById = {
         };
       });
 
+      // Format fulfillments
+      const fulfillments = (order.fulfillments || []).map((fulfillment: any) => ({
+        id: fulfillment.id,
+        status: fulfillment.status,
+        displayStatus: fulfillment.displayStatus,
+        createdAt: fulfillment.createdAt,
+        estimatedDeliveryAt: fulfillment.estimatedDeliveryAt,
+        trackingInfo: (fulfillment.trackingInfo || []).map((tracking: any) => ({
+          company: tracking.company,
+          number: tracking.number,
+          url: tracking.url
+        }))
+      }));
+
+      // Format fulfillment orders
+      const fulfillmentOrders = (order.fulfillmentOrders?.edges || []).map((foEdge: any) => {
+        const fo = foEdge.node;
+        return {
+          id: fo.id,
+          status: fo.status,
+          lineItems: (fo.lineItems?.edges || []).map((liEdge: any) => {
+            const li = liEdge.node;
+            return {
+              id: li.id,
+              remainingQuantity: li.remainingQuantity,
+              sku: li.lineItem?.sku,
+              title: li.lineItem?.title,
+            };
+          }),
+        };
+      });
+
       const formattedOrder = {
         id: order.id,
         name: order.name,
@@ -179,7 +243,9 @@ const getOrderById = {
         lineItems,
         tags: order.tags,
         note: order.note,
-        metafields
+        metafields,
+        fulfillments,
+        fulfillmentOrders
       };
 
       return { order: formattedOrder };

@@ -22,6 +22,8 @@ import { orderMarkAsPaid } from "./orderMarkAsPaid.js";
 import { createFulfillment } from "./createFulfillment.js";
 import { updateFulfillmentTracking } from "./updateFulfillmentTracking.js";
 import { createRefund } from "./createRefund.js";
+import { createReturn } from "./createReturn.js";
+import { createReverseDelivery } from "./createReverseDelivery.js";
 
 // Customer tools
 import { getCustomers } from "./getCustomers.js";
@@ -83,6 +85,8 @@ export const tools: ShopifyTool[] = [
   createFulfillment,
   updateFulfillmentTracking,
   createRefund,
+  createReturn,
+  createReverseDelivery,
   // Customers (8)
   getCustomers,
   getCustomerById,

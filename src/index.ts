@@ -5,10 +5,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import dotenv from "dotenv";
 import { GraphQLClient } from "graphql-request";
 import minimist from "minimist";
+import { z } from "zod";
 
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { tools } from "./tools/registry.js";
 import { createReverseDelivery } from "./tools/createReverseDelivery.js";
+import { updateReverseDeliveryShipping } from "./tools/updateReverseDeliveryShipping.js";
 
 // Parse command line arguments
 const argv = minimist(process.argv.slice(2));
@@ -102,6 +104,7 @@ for (const tool of tools) {
 
 // Initialize createReverseDelivery with the 2024-07 client (needs newer API)
 createReverseDelivery.initialize(shopifyClient202407);
+updateReverseDeliveryShipping.initialize(shopifyClient202407);
 
 // Set up MCP server
 const server = new McpServer({
@@ -131,6 +134,25 @@ server.tool(
   createReverseDelivery.schema.shape,
   async (args) => {
     const result = await createReverseDelivery.execute(args);
+    return {
+      content: [{ type: "text", text: JSON.stringify(result) }]
+    };
+  }
+);
+
+// Add the updateReverseDeliveryShipping tool
+server.tool(
+  "update-reverse-delivery-shipping",
+  {
+    reverseDeliveryId: z.string().min(1).describe("Reverse delivery GID (gid://shopify/ReverseDelivery/...)"),
+    trackingNumber: z.string().min(1).describe("New tracking number"),
+    trackingCompany: z.string().default("UPS").describe("Carrier name"),
+    trackingUrl: z.string().optional().describe("Tracking URL (auto-generated for UPS if omitted)"),
+    labelUrl: z.string().optional().describe("URL of the return label image (PNG/PDF)"),
+    notifyCustomer: z.boolean().default(false).describe("Send notification email to customer"),
+  },
+  async (args) => {
+    const result = await updateReverseDeliveryShipping.execute(args);
     return {
       content: [{ type: "text", text: JSON.stringify(result) }]
     };

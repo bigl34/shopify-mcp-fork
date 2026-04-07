@@ -1,6 +1,8 @@
 import type { GraphQLClient } from "graphql-request";
 import { gql } from "graphql-request";
 import { z } from "zod";
+import { handleToolError, edgesToNodes } from "../lib/toolUtils.js";
+import { formatLineItems, formatOrderSummary } from "../lib/formatters.js";
 
 // Input schema for getOrderById
 const GetOrderByIdInputSchema = z.object({
@@ -26,7 +28,48 @@ const getOrderById = {
     try {
       const { orderId } = input;
 
+      // Smart lookup: detect format and resolve to GID
+      let resolvedId: string;
+      const trimmed = orderId.trim();
+
+      if (trimmed.startsWith("gid://")) {
+        // Already a full GID
+        resolvedId = trimmed;
+      } else if (/^#?\d{1,9}$/.test(trimmed)) {
+        // Short number or #number — treat as order name, query by name
+        const orderName = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
+        const nameQuery = gql`
+          #graphql
+
+          query FindOrderByName($query: String!) {
+            orders(first: 1, query: $query) {
+              edges {
+                node {
+                  id
+                }
+              }
+            }
+          }
+        `;
+        const nameData = (await shopifyClient.request(nameQuery, {
+          query: `name:${orderName}`,
+        })) as { orders: { edges: Array<{ node: { id: string } }> } };
+
+        if (nameData.orders.edges.length === 0) {
+          throw new Error(`Order with name ${orderName} not found`);
+        }
+        resolvedId = nameData.orders.edges[0].node.id;
+      } else if (/^\d+$/.test(trimmed)) {
+        // Long numeric ID — convert to GID
+        resolvedId = `gid://shopify/Order/${trimmed}`;
+      } else {
+        // Unknown format — try as-is
+        resolvedId = trimmed;
+      }
+
       const query = gql`
+        #graphql
+
         query GetOrderById($id: ID!) {
           order(id: $id) {
             id
@@ -62,8 +105,12 @@ const getOrderById = {
               id
               firstName
               lastName
-              email
-              phone
+              defaultEmailAddress {
+                emailAddress
+              }
+              defaultPhoneNumber {
+                phoneNumber
+              }
             }
             shippingAddress {
               address1
@@ -96,6 +143,31 @@ const getOrderById = {
             }
             tags
             note
+            billingAddress {
+              address1
+              address2
+              city
+              provinceCode
+              zip
+              country
+              company
+              phone
+              firstName
+              lastName
+            }
+            cancelReason
+            cancelledAt
+            updatedAt
+            returnStatus
+            processedAt
+            poNumber
+            discountCodes
+            currentTotalPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
             metafields(first: 20) {
               edges {
                 node {
@@ -144,7 +216,7 @@ const getOrderById = {
       `;
 
       const variables = {
-        id: orderId
+        id: resolvedId
       };
 
       const data = (await shopifyClient.request(query, variables)) as {
@@ -158,37 +230,9 @@ const getOrderById = {
       // Extract and format order data
       const order = data.order;
 
-      // Format line items
-      const lineItems = order.lineItems.edges.map((lineItemEdge: any) => {
-        const lineItem = lineItemEdge.node;
-        return {
-          id: lineItem.id,
-          title: lineItem.title,
-          quantity: lineItem.quantity,
-          originalTotal: lineItem.originalTotalSet.shopMoney,
-          variant: lineItem.variant
-            ? {
-                id: lineItem.variant.id,
-                title: lineItem.variant.title,
-                sku: lineItem.variant.sku
-              }
-            : null
-        };
-      });
+      const base = formatOrderSummary(order);
 
-      // Format metafields
-      const metafields = order.metafields.edges.map((metafieldEdge: any) => {
-        const metafield = metafieldEdge.node;
-        return {
-          id: metafield.id,
-          namespace: metafield.namespace,
-          key: metafield.key,
-          value: metafield.value,
-          type: metafield.type
-        };
-      });
-
-      // Format fulfillments
+      // Format fulfillments (our custom addition, not in upstream's formatOrderSummary)
       const fulfillments = (order.fulfillments || []).map((fulfillment: any) => ({
         id: fulfillment.id,
         status: fulfillment.status,
@@ -202,7 +246,7 @@ const getOrderById = {
         }))
       }));
 
-      // Format fulfillment orders
+      // Format fulfillment orders (our custom addition for fulfillment workflow support)
       const fulfillmentOrders = (order.fulfillmentOrders?.edges || []).map((foEdge: any) => {
         const fo = foEdge.node;
         return {
@@ -219,43 +263,31 @@ const getOrderById = {
           }),
         };
       });
-
       const formattedOrder = {
-        id: order.id,
-        name: order.name,
-        createdAt: order.createdAt,
-        financialStatus: order.displayFinancialStatus,
-        fulfillmentStatus: order.displayFulfillmentStatus,
-        totalPrice: order.totalPriceSet.shopMoney,
-        subtotalPrice: order.subtotalPriceSet.shopMoney,
-        totalShippingPrice: order.totalShippingPriceSet.shopMoney,
-        totalTax: order.totalTaxSet.shopMoney,
+        ...base,
         customer: order.customer
           ? {
-              id: order.customer.id,
-              firstName: order.customer.firstName,
-              lastName: order.customer.lastName,
-              email: order.customer.email,
-              phone: order.customer.phone
+              ...base.customer,
+              phone: order.customer.defaultPhoneNumber?.phoneNumber || null,
             }
           : null,
-        shippingAddress: order.shippingAddress,
-        lineItems,
-        tags: order.tags,
-        note: order.note,
-        metafields,
+        billingAddress: order.billingAddress,
+        cancelReason: order.cancelReason,
+        cancelledAt: order.cancelledAt,
+        updatedAt: order.updatedAt,
+        returnStatus: order.returnStatus,
+        processedAt: order.processedAt,
+        poNumber: order.poNumber,
+        discountCodes: order.discountCodes,
+        currentTotalPrice: order.currentTotalPriceSet?.shopMoney,
+        metafields: edgesToNodes(order.metafields),
         fulfillments,
         fulfillmentOrders
       };
 
       return { order: formattedOrder };
     } catch (error) {
-      console.error("Error fetching order by ID:", error);
-      throw new Error(
-        `Failed to fetch order: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      handleToolError("fetch order", error);
     }
   }
 };

@@ -119,17 +119,6 @@ const getCustomerOrders = {
                 }
                 tags
                 note
-                fulfillments(first: 5) {
-                  id
-                  status
-                  displayStatus
-                  createdAt
-                  trackingInfo {
-                    company
-                    number
-                    url
-                  }
-                }
               }
             }
             pageInfo {

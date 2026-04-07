@@ -20,7 +20,9 @@ import { orderCancel } from "./orderCancel.js";
 import { orderCloseOpen } from "./orderCloseOpen.js";
 import { orderMarkAsPaid } from "./orderMarkAsPaid.js";
 import { createFulfillment } from "./createFulfillment.js";
+import { updateFulfillmentTracking } from "./updateFulfillmentTracking.js";
 import { createRefund } from "./createRefund.js";
+import { createReturn } from "./createReturn.js";
 
 // Customer tools
 import { getCustomers } from "./getCustomers.js";
@@ -54,10 +56,6 @@ import { getFulfillmentOrders } from "./getFulfillmentOrders.js";
 import { getOrderRefundDetails } from "./getOrderRefundDetails.js";
 import { getCollectionById } from "./getCollectionById.js";
 
-// Custom fork tools (returns, fulfillment tracking)
-import { updateFulfillmentTracking } from "./updateFulfillmentTracking.js";
-import { createReturn } from "./createReturn.js";
-
 // Inventory & pricing read tools
 import { getInventoryLevels } from "./getInventoryLevels.js";
 import { getInventoryItems } from "./getInventoryItems.js";
@@ -84,7 +82,9 @@ export const tools: ShopifyTool[] = [
   orderCloseOpen,
   orderMarkAsPaid,
   createFulfillment,
+  updateFulfillmentTracking,
   createRefund,
+  createReturn,
   // Customers (8)
   getCustomers,
   getCustomerById,
@@ -112,9 +112,6 @@ export const tools: ShopifyTool[] = [
   getFulfillmentOrders,
   getOrderRefundDetails,
   getCollectionById,
-  // Custom fork tools (3 — createReverseDelivery registered separately in index.ts)
-  updateFulfillmentTracking,
-  createReturn,
   // Inventory & pricing reads (4)
   getInventoryLevels,
   getInventoryItems,

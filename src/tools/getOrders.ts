@@ -1,13 +1,22 @@
 import type { GraphQLClient } from "graphql-request";
 import { gql } from "graphql-request";
 import { z } from "zod";
+import { handleToolError, edgesToNodes, type ShopifyConnection } from "../lib/toolUtils.js";
+import { formatOrderSummary } from "../lib/formatters.js";
 
 // Input schema for getOrders
 const GetOrdersInputSchema = z.object({
   status: z.enum(["any", "open", "closed", "cancelled"]).default("any"),
   limit: z.number().default(10),
-  sortKey: z.enum(["CREATED_AT", "UPDATED_AT", "TOTAL_PRICE", "ID", "CUSTOMER_NAME"]).default("CREATED_AT"),
-  reverse: z.boolean().default(true)  // true = newest first (descending)
+  after: z.string().optional().describe("Cursor for forward pagination"),
+  before: z.string().optional().describe("Cursor for backward pagination"),
+  sortKey: z.enum([
+    "CREATED_AT", "ORDER_NUMBER", "TOTAL_PRICE", "FINANCIAL_STATUS",
+    "FULFILLMENT_STATUS", "UPDATED_AT", "CUSTOMER_NAME", "PROCESSED_AT",
+    "ID", "RELEVANCE"
+  ]).optional().describe("Sort key for orders"),
+  reverse: z.boolean().optional().describe("Reverse the sort order"),
+  query: z.string().optional().describe("Raw query string for advanced filtering (e.g. 'financial_status:paid fulfillment_status:shipped')")
 });
 
 type GetOrdersInput = z.infer<typeof GetOrdersInputSchema>;
@@ -27,17 +36,23 @@ const getOrders = {
 
   execute: async (input: GetOrdersInput) => {
     try {
-      const { status, limit, sortKey, reverse } = input;
+      const { status, limit, after, before, sortKey, reverse, query: rawQuery } = input;
 
       // Build query filters
-      let queryFilter = "";
+      const queryParts: string[] = [];
       if (status !== "any") {
-        queryFilter = `status:${status}`;
+        queryParts.push(`status:${status}`);
       }
+      if (rawQuery) {
+        queryParts.push(rawQuery);
+      }
+      const queryFilter = queryParts.join(" ") || undefined;
 
       const query = gql`
-        query GetOrders($first: Int!, $query: String, $sortKey: OrderSortKeys, $reverse: Boolean) {
-          orders(first: $first, query: $query, sortKey: $sortKey, reverse: $reverse) {
+        #graphql
+
+        query GetOrders($first: Int!, $query: String, $after: String, $before: String, $sortKey: OrderSortKeys, $reverse: Boolean) {
+          orders(first: $first, query: $query, after: $after, before: $before, sortKey: $sortKey, reverse: $reverse) {
             edges {
               node {
                 id
@@ -73,7 +88,9 @@ const getOrders = {
                   id
                   firstName
                   lastName
-                  email
+                  defaultEmailAddress {
+                    emailAddress
+                  }
                 }
                 shippingAddress {
                   address1
@@ -119,90 +136,38 @@ const getOrders = {
                 }
               }
             }
+            pageInfo {
+              hasNextPage
+              hasPreviousPage
+              startCursor
+              endCursor
+            }
           }
         }
       `;
 
       const variables = {
         first: limit,
-        query: queryFilter || undefined,
-        sortKey,
-        reverse
+        query: queryFilter,
+        ...(after && { after }),
+        ...(before && { before }),
+        ...(sortKey && { sortKey }),
+        ...(reverse !== undefined && { reverse })
       };
 
       const data = (await shopifyClient.request(query, variables)) as {
-        orders: any;
+        orders: ShopifyConnection<any>;
       };
 
       // Extract and format order data
-      const orders = data.orders.edges.map((edge: any) => {
-        const order = edge.node;
+      const orders = edgesToNodes(data.orders).map(formatOrderSummary);
 
-        // Format line items
-        const lineItems = order.lineItems.edges.map((lineItemEdge: any) => {
-          const lineItem = lineItemEdge.node;
-          return {
-            id: lineItem.id,
-            title: lineItem.title,
-            quantity: lineItem.quantity,
-            originalTotal: lineItem.originalTotalSet.shopMoney,
-            variant: lineItem.variant
-              ? {
-                  id: lineItem.variant.id,
-                  title: lineItem.variant.title,
-                  sku: lineItem.variant.sku
-                }
-              : null
-          };
-        });
-
-        // Format fulfillments
-        const fulfillments = (order.fulfillments || []).map((fulfillment: any) => ({
-          id: fulfillment.id,
-          status: fulfillment.status,
-          displayStatus: fulfillment.displayStatus,
-          createdAt: fulfillment.createdAt,
-          trackingInfo: (fulfillment.trackingInfo || []).map((tracking: any) => ({
-            company: tracking.company,
-            number: tracking.number,
-            url: tracking.url
-          }))
-        }));
-
-        return {
-          id: order.id,
-          name: order.name,
-          createdAt: order.createdAt,
-          financialStatus: order.displayFinancialStatus,
-          fulfillmentStatus: order.displayFulfillmentStatus,
-          totalPrice: order.totalPriceSet.shopMoney,
-          subtotalPrice: order.subtotalPriceSet.shopMoney,
-          totalShippingPrice: order.totalShippingPriceSet.shopMoney,
-          totalTax: order.totalTaxSet.shopMoney,
-          customer: order.customer
-            ? {
-                id: order.customer.id,
-                firstName: order.customer.firstName,
-                lastName: order.customer.lastName,
-                email: order.customer.email
-              }
-            : null,
-          shippingAddress: order.shippingAddress,
-          lineItems,
-          tags: order.tags,
-          note: order.note,
-          fulfillments
-        };
-      });
-
-      return { orders };
+      return {
+        orders,
+        pageInfo: data.orders.pageInfo
+      };
     } catch (error) {
-      console.error("Error fetching orders:", error);
-      throw new Error(
-        `Failed to fetch orders: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      handleToolError("fetch orders", error);
     }
   }
 };

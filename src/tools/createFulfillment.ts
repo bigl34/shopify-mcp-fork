@@ -1,9 +1,7 @@
 import type { GraphQLClient } from "graphql-request";
 import { gql } from "graphql-request";
 import { z } from "zod";
-
-// Will be initialized in index.ts
-let shopifyClient: GraphQLClient;
+import { handleToolError } from "../lib/toolUtils.js";
 
 const CreateFulfillmentInputSchema = z.object({
   orderNumber: z.string().min(1),
@@ -73,6 +71,9 @@ type FulfillmentCreateResponse = {
     }>;
   };
 };
+
+// Will be initialized in index.ts
+let shopifyClient: GraphQLClient;
 
 function normalizeOrderCandidates(orderNumber: string): string[] {
   const raw = orderNumber.trim();
@@ -452,12 +453,7 @@ const createFulfillment = {
         fulfillments: createdFulfillments
       };
     } catch (error) {
-      console.error("Error creating fulfillment:", error);
-      throw new Error(
-        `Failed to create fulfillment: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
+      handleToolError("create fulfillment", error);
     }
   }
 };

@@ -81,6 +81,21 @@ const getCustomerOrders = {
                   defaultEmailAddress {
                     emailAddress
                   }
+                  phone
+                }
+                shippingAddress {
+                  name
+                  firstName
+                  lastName
+                  company
+                  address1
+                  address2
+                  city
+                  provinceCode
+                  zip
+                  country
+                  countryCodeV2
+                  phone
                 }
                 lineItems(first: 5) {
                   edges {

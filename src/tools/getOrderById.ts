@@ -113,12 +113,17 @@ const getOrderById = {
               }
             }
             shippingAddress {
+              name
+              firstName
+              lastName
+              company
               address1
               address2
               city
               provinceCode
               zip
               country
+              countryCodeV2
               phone
             }
             lineItems(first: 20) {
@@ -190,6 +195,66 @@ const getOrderById = {
                 number
                 url
               }
+            }
+            totalDiscountsSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            discountCodes
+            cancelledAt
+            closedAt
+            updatedAt
+            refunds {
+              id
+              createdAt
+              note
+              totalRefundedSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+              refundLineItems(first: 20) {
+                edges {
+                  node {
+                    lineItem {
+                      title
+                      sku
+                    }
+                    quantity
+                    subtotalSet {
+                      shopMoney {
+                        amount
+                        currencyCode
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            returns(first: 5) {
+              edges {
+                node {
+                  id
+                  status
+                }
+              }
+            }
+            transactions(first: 20) {
+              id
+              kind
+              status
+              amountSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+              gateway
+              formattedGateway
+              createdAt
             }
             fulfillmentOrders(first: 10) {
               edges {

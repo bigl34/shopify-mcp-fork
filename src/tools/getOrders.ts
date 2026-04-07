@@ -91,14 +91,20 @@ const getOrders = {
                   defaultEmailAddress {
                     emailAddress
                   }
+                  phone
                 }
                 shippingAddress {
+                  name
+                  firstName
+                  lastName
+                  company
                   address1
                   address2
                   city
                   provinceCode
                   zip
                   country
+                  countryCodeV2
                   phone
                 }
                 lineItems(first: 10) {
@@ -120,6 +126,48 @@ const getOrders = {
                       }
                     }
                   }
+                }
+                totalDiscountsSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                discountCodes
+                cancelledAt
+                closedAt
+                updatedAt
+                refunds {
+                  id
+                  createdAt
+                  totalRefundedSet {
+                    shopMoney {
+                      amount
+                      currencyCode
+                    }
+                  }
+                }
+                returns(first: 5) {
+                  edges {
+                    node {
+                      id
+                      status
+                    }
+                  }
+                }
+                transactions(first: 10) {
+                  id
+                  kind
+                  status
+                  amountSet {
+                    shopMoney {
+                      amount
+                      currencyCode
+                    }
+                  }
+                  gateway
+                  formattedGateway
+                  createdAt
                 }
                 tags
                 note

@@ -24,6 +24,7 @@ import { updateFulfillmentTracking } from "./updateFulfillmentTracking.js";
 import { releaseFulfillmentHold } from "./releaseFulfillmentHold.js";
 import { createRefund } from "./createRefund.js";
 import { createReturn } from "./createReturn.js";
+import { closeReturn } from "./closeReturn.js";
 
 // Customer tools
 import { getCustomers } from "./getCustomers.js";
@@ -73,7 +74,7 @@ export const tools: ShopifyTool[] = [
   manageProductVariants,
   deleteProductVariants,
   manageProductOptions,
-  // Orders (10)
+  // Orders (13)
   getOrders,
   getOrderById,
   updateOrder,
@@ -87,6 +88,7 @@ export const tools: ShopifyTool[] = [
   releaseFulfillmentHold,
   createRefund,
   createReturn,
+  closeReturn,
   // Customers (8)
   getCustomers,
   getCustomerById,

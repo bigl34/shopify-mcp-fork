@@ -7,10 +7,11 @@ let shopifyClient: GraphQLClient;
 
 const UpdateFulfillmentTrackingInputSchema = z.object({
   fulfillmentId: z.string().min(1),
-  trackingNumber: z.string().min(1),
+  trackingNumber: z.string().min(1).optional(),
   trackingCompany: z.string().optional(),
   trackingUrl: z.string().optional(),
-  notifyCustomer: z.boolean().default(false)
+  notifyCustomer: z.boolean().default(false),
+  clear: z.boolean().default(false)
 });
 
 type UpdateFulfillmentTrackingInput = z.infer<
@@ -92,7 +93,7 @@ function isSchemaCompatibilityError(error: unknown): boolean {
 
 const updateFulfillmentTracking = {
   name: "update-fulfillment-tracking",
-  description: "Update tracking number on an existing fulfillment",
+  description: "Update or clear tracking on an existing fulfillment",
   schema: UpdateFulfillmentTrackingInputSchema,
 
   initialize(client: GraphQLClient) {
@@ -106,27 +107,49 @@ const updateFulfillmentTracking = {
         trackingNumber,
         trackingCompany,
         trackingUrl,
-        notifyCustomer
+        notifyCustomer,
+        clear
       } = input;
 
+      // clear and trackingNumber are mutually exclusive; exactly one required.
+      if (clear && trackingNumber) {
+        throw new Error(
+          "update-fulfillment-tracking: pass either trackingNumber or clear, not both"
+        );
+      }
+      if (!clear && !trackingNumber) {
+        throw new Error(
+          "update-fulfillment-tracking: trackingNumber is required unless clear is set"
+        );
+      }
+
       const trackingInfoInput: {
-        number: string;
-        numbers: string[];
+        number?: string;
+        numbers?: string[];
         company?: string;
         url?: string;
         urls?: string[];
-      } = {
-        number: trackingNumber,
-        numbers: [trackingNumber]
-      };
+      } = {};
 
-      if (trackingCompany) {
-        trackingInfoInput.company = trackingCompany;
-      }
-
-      if (trackingUrl) {
-        trackingInfoInput.url = trackingUrl;
-        trackingInfoInput.urls = [trackingUrl];
+      if (clear) {
+        // Clear all tracking: empty numbers/urls, with the singular fields
+        // and company omitted. Verified against Shopify API 2024-10 — this
+        // yields trackingInfo: [] with the fulfillment status and line
+        // items unchanged.
+        trackingInfoInput.numbers = [];
+        trackingInfoInput.urls = [];
+      } else {
+        // Validated above: trackingNumber is present when not clearing.
+        const confirmedTrackingNumber = trackingNumber as string;
+        trackingInfoInput.number = confirmedTrackingNumber;
+        trackingInfoInput.numbers = [confirmedTrackingNumber];
+        if (trackingCompany) {
+          trackingInfoInput.company = trackingCompany;
+        }
+        if (trackingUrl) {
+          trackingInfoInput.url = trackingUrl;
+          trackingInfoInput.urls = [trackingUrl];
+        }
       }
 
       const mutationVariables = {

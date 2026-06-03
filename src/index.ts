@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import dotenv from "dotenv";
@@ -17,6 +21,90 @@ const argv = minimist(process.argv.slice(2));
 
 // Load environment variables from .env file (if it exists)
 dotenv.config();
+
+/**
+ * Startup self-check: warn (to stderr only — stdout is the MCP protocol channel)
+ * if any TypeScript source file is newer than its compiled JS in dist. `dist/`
+ * is gitignored, so an edited-but-uncompiled `src` leaves NO git trace and the
+ * running tools silently diverge from the source. This guard makes that drift
+ * visible at every startup. Non-fatal. No-op when `src/` is absent (e.g. a
+ * published npm package that ships only dist).
+ *
+ * Why this exists: on 2026-06-03 order #15361's create-fulfillment hit the OLD
+ * sku-required schema because src/tools/createFulfillment.ts was fixed on
+ * 2026-05-21 but `npm run build` was never re-run, so dist stayed stale.
+ */
+function warnIfBuildStale(): void {
+  try {
+    const distDir = dirname(fileURLToPath(import.meta.url));
+    const srcDir = join(distDir, "..", "src");
+    const srcTreeExists = existsSync(srcDir);
+    if (!srcTreeExists) {
+      return;
+    }
+
+    const staleFiles: string[] = [];
+
+    const collectStaleUnder = (dir: string): void => {
+      const entries = readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const srcPath = join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          collectStaleUnder(srcPath);
+          continue;
+        }
+
+        const isCompilableSource =
+          entry.name.endsWith(".ts") &&
+          !entry.name.endsWith(".d.ts") &&
+          !entry.name.endsWith(".test.ts");
+        if (!isCompilableSource) {
+          continue;
+        }
+
+        const relativeSourcePath = relative(srcDir, srcPath);
+        const expectedJsRelative = relativeSourcePath.replace(/\.ts$/, ".js");
+        const expectedJsPath = join(distDir, expectedJsRelative);
+
+        const compiledJsMissing = !existsSync(expectedJsPath);
+        if (compiledJsMissing) {
+          staleFiles.push(`${relativeSourcePath} (no compiled .js)`);
+          continue;
+        }
+
+        const sourceModifiedMs = statSync(srcPath).mtimeMs;
+        const compiledModifiedMs = statSync(expectedJsPath).mtimeMs;
+        const sourceIsNewer = sourceModifiedMs > compiledModifiedMs;
+        if (sourceIsNewer) {
+          staleFiles.push(relativeSourcePath);
+        }
+      }
+    };
+
+    collectStaleUnder(srcDir);
+
+    if (staleFiles.length === 0) {
+      return;
+    }
+
+    const projectRoot = join(distDir, "..");
+    const separator = "=".repeat(72);
+    console.error(separator);
+    console.error("[shopify-mcp] WARNING: compiled dist is STALE — src is newer than dist.");
+    console.error("[shopify-mcp] The running tools may NOT match the edited source. Rebuild with:");
+    console.error(`[shopify-mcp]   cd ${projectRoot} && npm run build`);
+    console.error("[shopify-mcp] Stale file(s):");
+    for (const staleFile of staleFiles) {
+      console.error(`[shopify-mcp]   - ${staleFile}`);
+    }
+    console.error(separator);
+  } catch {
+    // A self-check must never break server startup.
+  }
+}
+
+warnIfBuildStale();
 
 // Define environment variables - from command line or .env file
 const SHOPIFY_ACCESS_TOKEN =

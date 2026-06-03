@@ -11,6 +11,7 @@ import { GraphQLClient } from "graphql-request";
 import minimist from "minimist";
 import { z } from "zod";
 
+import { createRetryingFetch } from "./lib/retryingFetch.js";
 import { ShopifyAuth } from "./lib/shopifyAuth.js";
 import { tools } from "./tools/registry.js";
 import { createReverseDelivery } from "./tools/createReverseDelivery.js";
@@ -30,9 +31,6 @@ dotenv.config();
  * visible at every startup. Non-fatal. No-op when `src/` is absent (e.g. a
  * published npm package that ships only dist).
  *
- * Why this exists: on 2026-06-03 order #15361's create-fulfillment hit the OLD
- * sku-required schema because src/tools/createFulfillment.ts was fixed on
- * 2026-05-21 but `npm run build` was never re-run, so dist stayed stale.
  */
 function warnIfBuildStale(): void {
   try {
@@ -158,9 +156,19 @@ process.env.SHOPIFY_ACCESS_TOKEN = accessToken;
 
 // Create Shopify GraphQL client
 const API_VERSION = argv.apiVersion || process.env.SHOPIFY_API_VERSION || "2026-01";
+
+// Wrap the platform fetch with transient-fault retries. Shopify's Cloudflare
+// edge intermittently returns an app-level 404 for valid requests from this
+// host; the same request succeeds on retry. Without this, a single transient
+// 404 fails the whole tool call. See lib/retryingFetch.ts for the full rationale.
+const retryingFetch = createRetryingFetch(globalThis.fetch, {
+  label: "shopify-mcp"
+});
+
 const shopifyClient = new GraphQLClient(
   `https://${MYSHOPIFY_DOMAIN}/admin/api/${API_VERSION}/graphql.json`,
   {
+    fetch: retryingFetch,
     headers: {
       "X-Shopify-Access-Token": accessToken,
       "Content-Type": "application/json"
@@ -178,6 +186,7 @@ if (auth) {
 const shopifyClient202407 = new GraphQLClient(
   `https://${MYSHOPIFY_DOMAIN}/admin/api/2024-07/graphql.json`,
   {
+    fetch: retryingFetch,
     headers: {
       "X-Shopify-Access-Token": accessToken,
       "Content-Type": "application/json"

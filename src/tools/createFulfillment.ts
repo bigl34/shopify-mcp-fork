@@ -3,28 +3,36 @@ import { gql } from "graphql-request";
 import { z } from "zod";
 import { handleToolError } from "../lib/toolUtils.js";
 
+const LineItemSelectorSchema = z
+  .object({
+    // Shopify Order LineItem GID (gid://shopify/LineItem/...). Preferred over
+    // sku because it's unambiguous and works for orders with missing/empty
+    // variant SKUs (custom items, deleted variants).
+    lineItemId: z.string().min(1).optional(),
+    sku: z.string().min(1).optional(),
+    quantity: z.number().int().positive()
+  })
+  .refine((v) => Boolean(v.lineItemId || v.sku), {
+    message: "Either lineItemId or sku must be provided"
+  });
+
 const CreateFulfillmentInputSchema = z.object({
   orderNumber: z.string().min(1),
   trackingNumber: z.string().min(1),
   trackingCompany: z.string().default("UPS"),
   trackingUrl: z.string().optional(),
   notifyCustomer: z.boolean().default(false),
-  lineItems: z
-    .array(
-      z.object({
-        sku: z.string().min(1),
-        quantity: z.number().int().positive()
-      })
-    )
-    .optional()
+  lineItems: z.array(LineItemSelectorSchema).optional()
 });
 
 type CreateFulfillmentInput = z.infer<typeof CreateFulfillmentInputSchema>;
+type LineItemSelector = z.infer<typeof LineItemSelectorSchema>;
 
 type FulfillmentOrderLineItemNode = {
   id: string;
   remainingQuantity: number;
   lineItem: {
+    id: string | null;
     sku: string | null;
     title: string | null;
   } | null;
@@ -148,6 +156,7 @@ const createFulfillment = {
                             id
                             remainingQuantity
                             lineItem {
+                              id
                               sku
                               title
                             }
@@ -263,9 +272,33 @@ const createFulfillment = {
 
       const allocations = new Map<
         string,
-        Array<{ id: string; quantity: number; sku: string }>
+        Array<{ id: string; quantity: number; sku: string | null; lineItemId: string | null }>
       >();
       const consumedByLineItemId = new Map<string, number>();
+
+      // Matches a FulfillmentOrderLineItem against the user's selector. We
+      // prefer lineItemId (unambiguous, works for empty-SKU items) over sku.
+      // Both fields are optional on the selector; the schema refine guarantees
+      // at least one is set, but downstream code must still handle the case
+      // where the chosen identifier is null on the order side.
+      const lineItemMatches = (
+        node: FulfillmentOrderLineItemNode,
+        selector: LineItemSelector
+      ): boolean => {
+        if (selector.lineItemId) {
+          return node.lineItem?.id === selector.lineItemId;
+        }
+        if (selector.sku) {
+          return Boolean(node.lineItem?.sku) && node.lineItem?.sku === selector.sku;
+        }
+        return false;
+      };
+
+      const selectorLabel = (selector: LineItemSelector): string => {
+        if (selector.lineItemId) return `lineItem ${selector.lineItemId}`;
+        if (selector.sku) return `SKU ${selector.sku}`;
+        return "<no identifier>";
+      };
 
       if (lineItems && lineItems.length > 0) {
         for (const requestedItem of lineItems) {
@@ -284,8 +317,7 @@ const createFulfillment = {
                 break;
               }
 
-              const sku = lineItem.lineItem?.sku;
-              if (!sku || sku !== requestedItem.sku) {
+              if (!lineItemMatches(lineItem, requestedItem)) {
                 continue;
               }
 
@@ -317,7 +349,8 @@ const createFulfillment = {
               allocations.get(fulfillmentOrder.id)!.push({
                 id: lineItem.id,
                 quantity: quantityToAllocate,
-                sku
+                sku: lineItem.lineItem?.sku ?? null,
+                lineItemId: lineItem.lineItem?.id ?? null
               });
 
               remainingRequested -= quantityToAllocate;
@@ -326,7 +359,7 @@ const createFulfillment = {
 
           if (remainingRequested > 0) {
             throw new Error(
-              `Requested quantity exceeds fulfillable inventory for SKU ${requestedItem.sku} (missing ${remainingRequested})`
+              `Requested quantity exceeds fulfillable inventory for ${selectorLabel(requestedItem)} (missing ${remainingRequested})`
             );
           }
         }

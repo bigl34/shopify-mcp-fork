@@ -63,14 +63,16 @@ const FIND_ORDER_FOR_RETURN_QUERY = gql`
                 id
                 status
                 returnLineItems(first: 50) {
-                  edges {
-                    node {
-                      quantity
+                edges {
+                  node {
+                    quantity
+                    ... on ReturnLineItem {
                       fulfillmentLineItem {
                         id
                       }
                     }
                   }
+                }
                 }
               }
             }
@@ -94,11 +96,13 @@ const RETURN_CREATE_MUTATION = gql`
               id
               quantity
               returnReason
-              fulfillmentLineItem {
-                id
-                lineItem {
-                  sku
-                  title
+              ... on ReturnLineItem {
+                fulfillmentLineItem {
+                  id
+                  lineItem {
+                    sku
+                    title
+                  }
                 }
               }
             }

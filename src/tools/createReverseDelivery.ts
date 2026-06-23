@@ -20,16 +20,23 @@ const GET_RETURN_LINE_ITEMS_QUERY = gql`
     return(id: $returnId) {
       id
       status
-      returnLineItems(first: 50) {
+      reverseFulfillmentOrders(first: 10) {
         edges {
           node {
             id
-            quantity
-            fulfillmentLineItem {
-              id
-              lineItem {
-                sku
-                title
+            lineItems(first: 50) {
+              edges {
+                node {
+                  id
+                  totalQuantity
+                  fulfillmentLineItem {
+                    id
+                    lineItem {
+                      sku
+                      title
+                    }
+                  }
+                }
               }
             }
           }
@@ -40,20 +47,27 @@ const GET_RETURN_LINE_ITEMS_QUERY = gql`
 `;
 
 const REVERSE_DELIVERY_CREATE_MUTATION = gql`
-  mutation reverseDeliveryCreateWithShipping($input: ReverseDeliveryCreateWithShippingInput!) {
-    reverseDeliveryCreateWithShipping(input: $input) {
+  mutation reverseDeliveryCreateWithShipping(
+    $reverseFulfillmentOrderId: ID!
+    $reverseDeliveryLineItems: [ReverseDeliveryLineItemInput!]!
+    $trackingInput: ReverseDeliveryTrackingInput
+    $labelInput: ReverseDeliveryLabelInput
+    $notifyCustomer: Boolean
+  ) {
+    reverseDeliveryCreateWithShipping(
+      reverseFulfillmentOrderId: $reverseFulfillmentOrderId
+      reverseDeliveryLineItems: $reverseDeliveryLineItems
+      trackingInput: $trackingInput
+      labelInput: $labelInput
+      notifyCustomer: $notifyCustomer
+    ) {
       reverseDelivery {
         id
-        label {
-          fileUrl
-        }
         deliverable {
           ... on ReverseDeliveryShippingDeliverable {
             tracking {
               number
-              carrier {
-                name
-              }
+              carrierName
               url
             }
           }
@@ -87,7 +101,14 @@ const createReverseDelivery = {
         return: {
           id: string;
           status: string;
-          returnLineItems: { edges: Array<{ node: any }> };
+          reverseFulfillmentOrders: {
+            edges: Array<{
+              node: {
+                id: string;
+                lineItems: { edges: Array<{ node: any }> };
+              };
+            }>;
+          };
         } | null;
       };
 
@@ -96,10 +117,17 @@ const createReverseDelivery = {
       }
 
       const returnObj = returnData.return;
-      const returnLineItems = returnObj.returnLineItems.edges.map((e) => e.node);
+      const reverseFulfillmentOrder = returnObj.reverseFulfillmentOrders.edges[0]?.node;
 
-      if (returnLineItems.length === 0) {
-        throw new Error(`Return ${returnId} has no line items`);
+      if (!reverseFulfillmentOrder) {
+        throw new Error(`Return ${returnId} has no reverse fulfillment order`);
+      }
+
+      const reverseFulfillmentOrderLineItems =
+        reverseFulfillmentOrder.lineItems.edges.map((e) => e.node);
+
+      if (reverseFulfillmentOrderLineItems.length === 0) {
+        throw new Error(`Return ${returnId} has no reverse fulfillment order line items`);
       }
 
       // Step 2: Build tracking URL if not provided
@@ -109,27 +137,25 @@ const createReverseDelivery = {
       }
 
       // Step 3: Build reverse delivery line items (all return line items)
-      const reverseDeliveryLineItems = returnLineItems.map((rli: any) => ({
-        returnLineItemId: rli.id,
-        quantity: rli.quantity,
+      const reverseDeliveryLineItems = reverseFulfillmentOrderLineItems.map((rli: any) => ({
+        reverseFulfillmentOrderLineItemId: rli.id,
+        quantity: rli.totalQuantity,
       }));
 
       // Step 4: Create the reverse delivery with shipping
-      const trackingInput: { number: string; carrier: string; url?: string } = {
+      const trackingInput: { number: string; url?: string } = {
         number: trackingNumber,
-        carrier: trackingCompany,
       };
       if (resolvedTrackingUrl) {
         trackingInput.url = resolvedTrackingUrl;
       }
 
       const variables = {
-        input: {
-          returnId,
-          reverseDeliveryLineItems,
-          trackingInput,
-          ...(labelUrl ? { labelInput: { fileUrl: labelUrl } } : {}),
-        },
+        reverseFulfillmentOrderId: reverseFulfillmentOrder.id,
+        reverseDeliveryLineItems,
+        trackingInput,
+        notifyCustomer: false,
+        ...(labelUrl ? { labelInput: { fileUrl: labelUrl } } : {}),
       };
 
       const result = (await shopifyClient.request(REVERSE_DELIVERY_CREATE_MUTATION, variables)) as {
@@ -160,7 +186,6 @@ const createReverseDelivery = {
           company: trackingCompany,
           url: resolvedTrackingUrl,
         },
-        labelFileUrl: mutationResult.reverseDelivery.label?.fileUrl || null,
         lineItemCount: reverseDeliveryLineItems.length,
       };
     } catch (error) {

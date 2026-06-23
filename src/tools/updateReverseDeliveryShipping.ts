@@ -34,9 +34,7 @@ const REVERSE_DELIVERY_SHIPPING_UPDATE_MUTATION = gql`
           ... on ReverseDeliveryShippingDeliverable {
             tracking {
               number
-              carrier {
-                name
-              }
+              carrierName
               url
             }
           }
@@ -69,9 +67,8 @@ const updateReverseDeliveryShipping = {
         resolvedTrackingUrl = `https://www.ups.com/track?tracknum=${trackingNumber}`;
       }
 
-      const trackingInput: { number: string; carrier: string; url?: string } = {
+      const trackingInput: { number: string; url?: string } = {
         number: trackingNumber,
-        carrier: trackingCompany,
       };
       if (resolvedTrackingUrl) {
         trackingInput.url = resolvedTrackingUrl;
@@ -114,7 +111,7 @@ const updateReverseDeliveryShipping = {
         reverseDeliveryId: mutationResult.reverseDelivery.id,
         tracking: {
           number: tracking?.number || trackingNumber,
-          company: tracking?.carrier?.name || trackingCompany,
+          company: tracking?.carrierName || trackingCompany,
           url: tracking?.url || resolvedTrackingUrl,
         },
       };

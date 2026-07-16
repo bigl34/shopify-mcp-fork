@@ -2,6 +2,10 @@
  * A fetch wrapper that retries transient transport failures against the Shopify
  * Admin GraphQL API.
  *
+ * Some Shopify edge responses are transient, and an identical request can
+ * succeed on retry. graphql-request has no built-in retry handling, so this
+ * wrapper retries only transport failures that are safe to attempt again.
+ *
  * Safety of retrying these specific failures:
  *  - GraphQL business errors arrive as HTTP 200 with an `errors` body, so they
  *    are never retried here (only the HTTP transport layer is considered).

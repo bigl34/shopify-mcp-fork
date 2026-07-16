@@ -31,6 +31,8 @@ dotenv.config();
  * visible at every startup. Non-fatal. No-op when `src/` is absent (e.g. a
  * published npm package that ships only dist).
  *
+ * This prevents edited TypeScript sources from being served through stale
+ * compiled output when a local build has not been refreshed.
  */
 function warnIfBuildStale(): void {
   try {

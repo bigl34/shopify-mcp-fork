@@ -108,30 +108,30 @@ test("tries 4-digit order first, then 5-digit fallback", async () => {
     lineItems: [buildLineItem({ id: "li-1", sku: "SKU-1", remainingQuantity: 1 })]
   });
 
-  const order14891 = buildOrder({
-    id: "gid://shopify/Order/14891",
-    name: "#14891",
+  const syntheticOrder = buildOrder({
+    id: "gid://shopify/Order/90001",
+    name: "#TEST90001",
     fulfillmentOrders: [fulfillmentOrder]
   });
 
   const client = createMockClient(
     buildFindOrderResponse(null),
-    buildFindOrderResponse(order14891),
+    buildFindOrderResponse(syntheticOrder),
     buildMutationSuccess()
   );
   createFulfillment.initialize(client);
 
   const result = await createFulfillment.execute({
-    orderNumber: "1489",
+    orderNumber: "9000",
     trackingNumber: "TRACK-1",
     trackingCompany: "UPS",
     notifyCustomer: false
   });
 
   expect(client.request).toHaveBeenCalledTimes(3);
-  expect(client.request.mock.calls[0][1]).toEqual({ query: "name:1489" });
-  expect(client.request.mock.calls[1][1]).toEqual({ query: "name:14891" });
-  expect(result.orderName).toBe("#14891");
+  expect(client.request.mock.calls[0][1]).toEqual({ query: "name:9000" });
+  expect(client.request.mock.calls[1][1]).toEqual({ query: "name:90001" });
+  expect(result.orderName).toBe("#TEST90001");
   expect(result.fulfillments).toHaveLength(1);
 });
 
@@ -147,7 +147,7 @@ test("allocates partial line-item quantities across multiple fulfillment orders"
 
   const order = buildOrder({
     id: "gid://shopify/Order/201",
-    name: "#12001",
+    name: "#TEST12001",
     fulfillmentOrders: [fo1, fo2]
   });
 
@@ -187,7 +187,7 @@ test("allocates partial line-item quantities across multiple fulfillment orders"
 test("returns blocked result when fulfillment orders are on hold/scheduled", async () => {
   const blockedOrder = buildOrder({
     id: "gid://shopify/Order/300",
-    name: "#13000",
+    name: "#TEST13000",
     fulfillmentOrders: [
       buildFulfillmentOrder({
         id: "gid://shopify/FulfillmentOrder/301",
@@ -224,7 +224,7 @@ test("returns blocked result when fulfillment orders are on hold/scheduled", asy
 test("throws when requested line-item quantity exceeds remaining fulfillable quantity", async () => {
   const order = buildOrder({
     id: "gid://shopify/Order/400",
-    name: "#14000",
+    name: "#TEST14000",
     fulfillmentOrders: [
       buildFulfillmentOrder({
         id: "gid://shopify/FulfillmentOrder/401",
@@ -254,7 +254,7 @@ test("throws when requested line-item quantity exceeds remaining fulfillable qua
 test("auto-generates UPS tracking URL when omitted", async () => {
   const order = buildOrder({
     id: "gid://shopify/Order/500",
-    name: "#15000",
+    name: "#TEST15000",
     fulfillmentOrders: [
       buildFulfillmentOrder({
         id: "gid://shopify/FulfillmentOrder/501",
@@ -282,7 +282,7 @@ test("auto-generates UPS tracking URL when omitted", async () => {
 test("returns already fulfilled when order has no fulfillment orders", async () => {
   const order = buildOrder({
     id: "gid://shopify/Order/600",
-    name: "#16000",
+    name: "#TEST16000",
     fulfillmentOrders: []
   });
 
@@ -304,7 +304,7 @@ test("returns already fulfilled when order has no fulfillment orders", async () 
 test("surfaces Shopify userErrors from fulfillment mutation", async () => {
   const order = buildOrder({
     id: "gid://shopify/Order/700",
-    name: "#17000",
+    name: "#TEST17000",
     fulfillmentOrders: [
       buildFulfillmentOrder({
         id: "gid://shopify/FulfillmentOrder/701",

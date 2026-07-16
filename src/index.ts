@@ -31,9 +31,8 @@ dotenv.config();
  * visible at every startup. Non-fatal. No-op when `src/` is absent (e.g. a
  * published npm package that ships only dist).
  *
- * Why this exists: on 2026-06-03 order #15361's create-fulfillment hit the OLD
- * sku-required schema because src/tools/createFulfillment.ts was fixed on
- * 2026-05-21 but `npm run build` was never re-run, so dist stayed stale.
+ * This prevents edited TypeScript sources from being served through stale
+ * compiled output when a local build has not been refreshed.
  */
 function warnIfBuildStale(): void {
   try {

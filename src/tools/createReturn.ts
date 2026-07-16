@@ -15,7 +15,7 @@ const ReturnReasonEnum = z.enum([
 ]);
 
 const CreateReturnInputSchema = z.object({
-  orderNumber: z.string().min(1).describe("Order number"),
+  orderNumber: z.string().min(1).describe("Order number (e.g., 'TEST1001' or '#TEST1001')"),
   lineItems: z.array(z.object({
     sku: z.string().describe("SKU of the item to return"),
     quantity: z.number().int().positive().describe("Quantity to return"),

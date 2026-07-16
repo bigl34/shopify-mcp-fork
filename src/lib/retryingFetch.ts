@@ -2,15 +2,9 @@
  * A fetch wrapper that retries transient transport failures against the Shopify
  * Admin GraphQL API.
  *
- * Why this exists (2026-06-03): the bot host intermittently receives an
- * app-level HTTP 404 (`{"errors":"Not Found"}`, served via Shopify's Cloudflare
- * edge) for perfectly valid requests. The SAME request succeeds on retry —
- * measured ~17-40% first-try success during a flaky window while Shopify's
- * status page read "All Systems Operational", and the failure was
- * version-independent (the same API version flipped 200<->404 across attempts).
- * graphql-request had NO retry, so a single transient 404 failed the entire
- * tool call — e.g. create-fulfillment for order #15361 aborted on its order
- * lookup. Retrying is the correct response to transient infrastructure errors.
+ * Some Shopify edge responses are transient, and an identical request can
+ * succeed on retry. graphql-request has no built-in retry handling, so this
+ * wrapper retries only transport failures that are safe to attempt again.
  *
  * Safety of retrying these specific failures:
  *  - GraphQL business errors arrive as HTTP 200 with an `errors` body, so they

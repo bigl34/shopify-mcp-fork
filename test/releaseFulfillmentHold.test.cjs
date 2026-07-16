@@ -4,7 +4,8 @@ const { pathToFileURL } = require("url");
 let releaseFulfillmentHold;
 let consoleErrorSpy;
 
-const VALID_GID = "gid://shopify/FulfillmentOrder/1234567890";
+// Deliberately synthetic Shopify GID used only by this test suite.
+const VALID_GID = "gid://shopify/FulfillmentOrder/9999999999";
 
 function createMockClient(...responses) {
   const queue = [...responses];

@@ -305,7 +305,7 @@ All list query tools (`get-products`, `get-customers`, `get-orders`, `get-custom
 
    - Get a single customer by ID with full details
    - Inputs:
-     - `id` (string, required): Shopify customer ID (numeric only, e.g. `"6276879810626"`)
+     - `id` (string, required): Shopify customer ID (numeric only, e.g. `"1234567890"`, synthetic)
    - Returns: name, email, phone, addresses, tags, note, tax status, amount spent, order count, metafields
 
 3. **`create-customer`**
@@ -326,7 +326,7 @@ All list query tools (`get-products`, `get-customers`, `get-orders`, `get-custom
 
    - Update a customer's information
    - Inputs:
-     - `id` (string, required): Shopify customer ID (numeric only, e.g. `"6276879810626"`)
+     - `id` (string, required): Shopify customer ID (numeric only, e.g. `"1234567890"`, synthetic)
      - `firstName` (string, optional): Customer's first name
      - `lastName` (string, optional): Customer's last name
      - `email` (string, optional): Customer's email address
@@ -344,7 +344,7 @@ All list query tools (`get-products`, `get-customers`, `get-orders`, `get-custom
 
    - Delete a customer
    - Inputs:
-     - `id` (string, required): Shopify customer ID (numeric only, e.g. `"6276879810626"`)
+     - `id` (string, required): Shopify customer ID (numeric only, e.g. `"1234567890"`, synthetic)
 
 6. **`customer-merge`**
 
@@ -379,7 +379,7 @@ All list query tools (`get-products`, `get-customers`, `get-orders`, `get-custom
 
 2. **`get-order-by-id`**
 
-   - Get a specific order by ID with smart lookup — accepts order name (`#77235` or `77235`), numeric ID (`8054938337547`), or full GID (`gid://shopify/Order/...`)
+   - Get a specific order by ID with smart lookup — accepts a synthetic order name (`#TEST1001` or `TEST1001`), numeric ID (`1234567890`), or full GID (`gid://shopify/Order/...`)
    - Inputs:
      - `orderId` (string, required): Order name, numeric ID, or full GID
    - Returns: pricing, customer, shipping/billing addresses, line items, tags, notes, metafields, cancel reason, return status, discount codes, PO number, timestamps
@@ -402,7 +402,7 @@ All list query tools (`get-products`, `get-customers`, `get-orders`, `get-custom
 
    - Get orders for a specific customer with pagination and sorting
    - Inputs:
-     - `customerId` (string, required): Shopify customer ID (numeric only, e.g. `"6276879810626"`)
+     - `customerId` (string, required): Shopify customer ID (numeric only, e.g. `"1234567890"`, synthetic)
      - `limit` (number, default: 10): Maximum number of orders to return
      - `sortKey` (string, optional): Same sort keys as `get-orders`
      - `reverse` (boolean, optional): Reverse the sort order
@@ -518,7 +518,7 @@ The `get-orders` tool's `query` parameter supports [Shopify search syntax](https
 
 | Filter | Example |
 |--------|---------|
-| `name` | `name:#77235` |
+| `name` | `name:#TEST1001` |
 | `created_at` | `created_at:>2024-01-01` or `created_at:2024-01-01..2024-03-31` |
 | `updated_at` | `updated_at:>2024-06-01` |
 | `financial_status` | `financial_status:paid` |

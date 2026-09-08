@@ -127,6 +127,18 @@ const getOrders = {
                     }
                   }
                 }
+                fulfillments {
+                  id
+                  status
+                  displayStatus
+                  createdAt
+                  estimatedDeliveryAt
+                  trackingInfo {
+                    company
+                    number
+                    url
+                  }
+                }
                 totalDiscountsSet {
                   shopMoney {
                     amount

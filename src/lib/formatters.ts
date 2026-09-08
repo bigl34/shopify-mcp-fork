@@ -86,6 +86,41 @@ interface RawOrderNode {
   lineItems: RawLineItemConnection;
   tags: string[];
   note: string | null;
+  fulfillments?: RawFulfillment[] | null;
+}
+
+/**
+ * Fulfillment as returned by the Admin API. getOrderById has always requested
+ * this subtree; getOrders did not, so list callers could not see tracking
+ * numbers without a per-order follow-up fetch.
+ */
+interface RawFulfillment {
+  id: string;
+  status?: string | null;
+  displayStatus?: string | null;
+  createdAt?: string | null;
+  estimatedDeliveryAt?: string | null;
+  trackingInfo?: Array<{
+    company?: string | null;
+    number?: string | null;
+    url?: string | null;
+  }> | null;
+}
+
+/** Normalise the fulfillments subtree, tolerating its absence. */
+export function formatFulfillments(fulfillments: RawFulfillment[] | null | undefined) {
+  return (fulfillments || []).map((fulfillment) => ({
+    id: fulfillment.id,
+    status: fulfillment.status,
+    displayStatus: fulfillment.displayStatus,
+    createdAt: fulfillment.createdAt,
+    estimatedDeliveryAt: fulfillment.estimatedDeliveryAt,
+    trackingInfo: (fulfillment.trackingInfo || []).map((tracking) => ({
+      company: tracking.company,
+      number: tracking.number,
+      url: tracking.url,
+    })),
+  }));
 }
 
 /**
@@ -113,6 +148,7 @@ export function formatOrderSummary(order: RawOrderNode) {
       : null,
     shippingAddress: order.shippingAddress,
     lineItems: formatLineItems(order.lineItems),
+    fulfillments: formatFulfillments(order.fulfillments),
     tags: order.tags,
     note: order.note,
   };

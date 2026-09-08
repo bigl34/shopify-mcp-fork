@@ -91,6 +91,30 @@ If you have an existing custom app with a static `shpat_` access token, you can 
 
 **Static Access Token (legacy):**
 
+> **Prefer environment variables for the token.** On Linux `/proc/<pid>/cmdline`
+> is world-readable while `/proc/<pid>/environ` is owner-only, so a token passed
+> as `--accessToken` is visible to any local user for the lifetime of the
+> process. The server reads `SHOPIFY_ACCESS_TOKEN` and `MYSHOPIFY_DOMAIN` as a
+> supported alternative — see "Run Locally with Environment Variables" below.
+> The argv form is kept for backwards compatibility.
+
+```json
+{
+  "mcpServers": {
+    "shopify": {
+      "command": "npx",
+      "args": ["shopify-mcp"],
+      "env": {
+        "SHOPIFY_ACCESS_TOKEN": "<YOUR_ACCESS_TOKEN>",
+        "MYSHOPIFY_DOMAIN": "<YOUR_SHOP>.myshopify.com"
+      }
+    }
+  }
+}
+```
+
+The equivalent argv form, still accepted:
+
 ```json
 {
   "mcpServers": {
@@ -125,6 +149,16 @@ claude mcp add shopify -- npx shopify-mcp \
 ```
 
 **Static Access Token (legacy):**
+
+Pass the token through the environment rather than argv (see the note above):
+
+```bash
+SHOPIFY_ACCESS_TOKEN=YOUR_ACCESS_TOKEN \
+MYSHOPIFY_DOMAIN=your-store.myshopify.com \
+  claude mcp add shopify -- npx shopify-mcp
+```
+
+The argv form is still accepted:
 
 ```bash
 claude mcp add shopify -- npx shopify-mcp \
@@ -556,3 +590,4 @@ tail -n 20 -f ~/Library/Logs/Claude/mcp*.log
 ## License
 
 MIT
+

@@ -5,7 +5,10 @@ import { handleToolError } from "../lib/toolUtils.js";
 
 // Input schema for getProductById
 const GetProductByIdInputSchema = z.object({
-  productId: z.string().min(1)
+  productId: z.string().min(1),
+  variantsFirst: z.number().int().min(1).max(100).default(20),
+  variantsAfter: z.string().min(1).optional(),
+  metafieldsFirst: z.number().int().min(1).max(100).default(25),
 });
 
 type GetProductByIdInput = z.infer<typeof GetProductByIdInputSchema>;
@@ -15,7 +18,8 @@ let shopifyClient: GraphQLClient;
 
 const getProductById = {
   name: "get-product-by-id",
-  description: "Get a specific product by ID",
+  description:
+    "Get a product with rich catalog, media, variant, collection, SEO, category, and metafield data. Variant results support cursor pagination.",
   schema: GetProductByIdInputSchema,
 
   // Add initialize method to set up the GraphQL client
@@ -30,16 +34,42 @@ const getProductById = {
       const query = gql`
         #graphql
 
-        query GetProductById($id: ID!) {
+        query GetProductById(
+          $id: ID!
+          $variantsFirst: Int!
+          $variantsAfter: String
+          $metafieldsFirst: Int!
+        ) {
           product(id: $id) {
             id
+            legacyResourceId
             title
             description
             handle
             status
             createdAt
             updatedAt
+            publishedAt
             totalInventory
+            tracksInventory
+            hasOnlyDefaultVariant
+            hasOutOfStockVariants
+            isGiftCard
+            requiresSellingPlan
+            templateSuffix
+            onlineStoreUrl
+            onlineStorePreviewUrl
+            category {
+              id
+              name
+              fullName
+            }
+            variantsCount {
+              count
+            }
+            mediaCount {
+              count
+            }
             priceRangeV2 {
               minVariantPrice {
                 amount
@@ -53,9 +83,26 @@ const getProductById = {
             media(first: 5) {
               edges {
                 node {
-                  ... on MediaImage {
-                    id
+                  __typename
+                  id
+                  alt
+                  mediaContentType
+                  status
+                  preview {
+                    status
                     image {
+                      id
+                      url
+                      altText
+                      width
+                      height
+                    }
+                  }
+                  ... on MediaImage {
+                    createdAt
+                    updatedAt
+                    image {
+                      id
                       url
                       altText
                       width
@@ -65,19 +112,54 @@ const getProductById = {
                 }
               }
             }
-            variants(first: 20) {
+            variants(first: $variantsFirst, after: $variantsAfter) {
               edges {
                 node {
                   id
                   title
+                  displayName
                   price
+                  compareAtPrice
                   inventoryQuantity
                   sku
+                  barcode
+                  availableForSale
+                  taxable
+                  createdAt
+                  updatedAt
+                  image {
+                    id
+                    url
+                    altText
+                    width
+                    height
+                  }
                   selectedOptions {
                     name
                     value
                   }
+                  inventoryItem {
+                    id
+                    tracked
+                    requiresShipping
+                    unitCost {
+                      amount
+                      currencyCode
+                    }
+                    measurement {
+                      weight {
+                        unit
+                        value
+                      }
+                    }
+                  }
                 }
+              }
+              pageInfo {
+                hasNextPage
+                hasPreviousPage
+                startCursor
+                endCursor
               }
             }
             collections(first: 5) {
@@ -96,6 +178,25 @@ const getProductById = {
               title
               description
             }
+            metafields(first: $metafieldsFirst) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                  type
+                  createdAt
+                  updatedAt
+                }
+              }
+              pageInfo {
+                hasNextPage
+                hasPreviousPage
+                startCursor
+                endCursor
+              }
+            }
             options {
               id
               name
@@ -110,7 +211,10 @@ const getProductById = {
       `;
 
       const variables = {
-        id: productId
+        id: productId,
+        variantsFirst: input.variantsFirst,
+        ...(input.variantsAfter && { variantsAfter: input.variantsAfter }),
+        metafieldsFirst: input.metafieldsFirst,
       };
 
       const data = (await shopifyClient.request(query, variables)) as {
@@ -128,10 +232,19 @@ const getProductById = {
       const variants = product.variants.edges.map((variantEdge: any) => ({
         id: variantEdge.node.id,
         title: variantEdge.node.title,
+        displayName: variantEdge.node.displayName,
         price: variantEdge.node.price,
+        compareAtPrice: variantEdge.node.compareAtPrice,
         inventoryQuantity: variantEdge.node.inventoryQuantity,
         sku: variantEdge.node.sku,
-        options: variantEdge.node.selectedOptions
+        barcode: variantEdge.node.barcode,
+        availableForSale: variantEdge.node.availableForSale,
+        taxable: variantEdge.node.taxable,
+        createdAt: variantEdge.node.createdAt,
+        updatedAt: variantEdge.node.updatedAt,
+        image: variantEdge.node.image,
+        inventoryItem: variantEdge.node.inventoryItem,
+        options: variantEdge.node.selectedOptions,
       }));
 
       // Format images from media
@@ -155,13 +268,26 @@ const getProductById = {
 
       const formattedProduct = {
         id: product.id,
+        legacyResourceId: product.legacyResourceId,
         title: product.title,
         description: product.description,
         handle: product.handle,
         status: product.status,
         createdAt: product.createdAt,
         updatedAt: product.updatedAt,
+        publishedAt: product.publishedAt,
         totalInventory: product.totalInventory,
+        tracksInventory: product.tracksInventory,
+        hasOnlyDefaultVariant: product.hasOnlyDefaultVariant,
+        hasOutOfStockVariants: product.hasOutOfStockVariants,
+        isGiftCard: product.isGiftCard,
+        requiresSellingPlan: product.requiresSellingPlan,
+        templateSuffix: product.templateSuffix,
+        onlineStoreUrl: product.onlineStoreUrl,
+        onlineStorePreviewUrl: product.onlineStorePreviewUrl,
+        category: product.category,
+        variantsCount: product.variantsCount?.count ?? null,
+        mediaCount: product.mediaCount?.count ?? null,
         priceRange: {
           minPrice: {
             amount: product.priceRangeV2.minVariantPrice.amount,
@@ -174,13 +300,16 @@ const getProductById = {
         },
         images,
         variants,
+        variantsPageInfo: product.variants.pageInfo,
         collections,
         tags: product.tags,
         vendor: product.vendor,
         productType: product.productType,
         descriptionHtml: product.descriptionHtml,
         seo: product.seo,
-        options: product.options
+        options: product.options,
+        metafields: product.metafields.edges.map((edge: any) => edge.node),
+        metafieldsPageInfo: product.metafields.pageInfo,
       };
 
       return { product: formattedProduct };

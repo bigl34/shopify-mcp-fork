@@ -63,6 +63,14 @@ import { getInventoryLevels } from "./getInventoryLevels.js";
 import { getInventoryItems } from "./getInventoryItems.js";
 import { getPriceLists } from "./getPriceLists.js";
 import { getProductVariantsDetailed } from "./getProductVariantsDetailed.js";
+import { getProductEvents } from "./getProductEvents.js";
+import { getFiles } from "./getFiles.js";
+import { getShopSettings } from "./getShopSettings.js";
+import { getAppScopes } from "./getAppScopes.js";
+import { getWebPixel } from "./getWebPixel.js";
+import { getThemes } from "./getThemes.js";
+import { fileUpload } from "./fileUpload.js";
+import { disposeReverseFulfillmentOrder } from "./disposeReverseFulfillmentOrder.js";
 
 export const tools: ShopifyTool[] = [
   // Products (8)
@@ -121,4 +129,16 @@ export const tools: ShopifyTool[] = [
   getInventoryItems,
   getPriceLists,
   getProductVariantsDetailed,
+  // Product timeline
+  getProductEvents,
+  // Files, app, and online-store discovery
+  getFiles,
+  getShopSettings,
+  getAppScopes,
+  getWebPixel,
+  getThemes,
+  // Files write (dry-run/confirmation gated)
+  fileUpload,
+  // Returns write (dry-run/confirmation gated)
+  disposeReverseFulfillmentOrder,
 ];

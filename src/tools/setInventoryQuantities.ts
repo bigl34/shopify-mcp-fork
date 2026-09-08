@@ -4,19 +4,32 @@ import { z } from "zod";
 import { checkUserErrors, handleToolError } from "../lib/toolUtils.js";
 
 const SetInventoryQuantitiesInputSchema = z.object({
+  idempotencyKey: z
+    .string()
+    .min(1)
+    .max(255)
+    .describe("Unique key for this logical inventory write; retries must reuse the same key"),
   reason: z.string().describe("Reason for the quantity change (e.g. 'correction', 'cycle_count_available', 'received')"),
   name: z.enum(["available", "on_hand"]).describe("Which quantity to set: 'available' or 'on_hand'"),
+  referenceDocumentUri: z
+    .string()
+    .url()
+    .optional()
+    .describe("Optional source-document URI for the inventory audit trail"),
   quantities: z
     .array(
       z.object({
         inventoryItemId: z.string().describe("Inventory item GID"),
         locationId: z.string().describe("Location GID"),
-        quantity: z.number().describe("Absolute quantity to set"),
+        quantity: z.number().int().describe("Absolute quantity to set"),
+        changeFromQuantity: z
+          .number()
+          .int()
+          .describe("Expected current quantity for Shopify compare-and-set"),
       })
     )
     .min(1)
     .describe("Quantities to set for each inventory item at each location"),
-  ignoreCompareQuantity: z.boolean().default(true).describe("Skip compare-and-set check (default true for simplicity)"),
 });
 
 type SetInventoryQuantitiesInput = z.infer<typeof SetInventoryQuantitiesInputSchema>;
@@ -26,7 +39,7 @@ let shopifyClient: GraphQLClient;
 const setInventoryQuantities = {
   name: "inventory-set-quantities",
   description:
-    "Set absolute inventory quantities for items at specific locations. Use for inventory corrections, cycle counts, etc.",
+    "Idempotently set absolute inventory quantities with compare-and-set safety. Reuse the idempotency key when retrying the same logical write.",
   schema: SetInventoryQuantitiesInputSchema,
 
   initialize(client: GraphQLClient) {
@@ -38,10 +51,16 @@ const setInventoryQuantities = {
       const query = gql`
         #graphql
 
-        mutation inventorySetQuantities($input: InventorySetQuantitiesInput!) {
-          inventorySetQuantities(input: $input) {
+        mutation inventorySetQuantities(
+          $input: InventorySetQuantitiesInput!
+          $idempotencyKey: String!
+        ) {
+          inventorySetQuantities(input: $input)
+            @idempotent(key: $idempotencyKey) {
             inventoryAdjustmentGroup {
+              createdAt
               reason
+              referenceDocumentUri
               changes {
                 name
                 delta
@@ -66,10 +85,13 @@ const setInventoryQuantities = {
       `;
 
       const data = (await shopifyClient.request(query, {
+        idempotencyKey: input.idempotencyKey,
         input: {
           reason: input.reason,
           name: input.name,
-          ignoreCompareQuantity: input.ignoreCompareQuantity,
+          ...(input.referenceDocumentUri && {
+            referenceDocumentUri: input.referenceDocumentUri,
+          }),
           quantities: input.quantities,
         },
       })) as {
@@ -82,6 +104,7 @@ const setInventoryQuantities = {
       checkUserErrors(data.inventorySetQuantities.userErrors, "set inventory quantities");
 
       return {
+        idempotencyKey: input.idempotencyKey,
         adjustmentGroup: data.inventorySetQuantities.inventoryAdjustmentGroup,
       };
     } catch (error) {

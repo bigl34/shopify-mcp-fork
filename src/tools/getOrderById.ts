@@ -347,7 +347,9 @@ const getOrderById = {
         currentTotalPrice: order.currentTotalPriceSet?.shopMoney,
         metafields: edgesToNodes(order.metafields),
         fulfillments,
-        fulfillmentOrders
+        fulfillmentOrders,
+        refunds: order.refunds,
+        transactions: order.transactions
       };
 
       return { order: formattedOrder };

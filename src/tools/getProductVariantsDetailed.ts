@@ -17,6 +17,11 @@ const GetProductVariantsDetailedInputSchema = z.object({
     .default(50)
     .optional()
     .describe("Number of variants to return (default 50, max 100)"),
+  after: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Return variants after this cursor"),
 });
 type GetProductVariantsDetailedInput = z.infer<
   typeof GetProductVariantsDetailedInputSchema
@@ -43,11 +48,15 @@ const getProductVariantsDetailed = {
       const query = gql`
         #graphql
 
-        query GetProductVariantsDetailed($id: ID!, $first: Int!) {
+        query GetProductVariantsDetailed(
+          $id: ID!
+          $first: Int!
+          $after: String
+        ) {
           product(id: $id) {
             id
             title
-            variants(first: $first) {
+            variants(first: $first, after: $after) {
               edges {
                 node {
                   id
@@ -108,6 +117,8 @@ const getProductVariantsDetailed = {
               }
               pageInfo {
                 hasNextPage
+                hasPreviousPage
+                startCursor
                 endCursor
               }
             }
@@ -118,6 +129,7 @@ const getProductVariantsDetailed = {
       const data: any = await shopifyClient.request(query, {
         id: productId,
         first: input.first ?? 50,
+        ...(input.after && { after: input.after }),
       });
 
       if (!data.product) {

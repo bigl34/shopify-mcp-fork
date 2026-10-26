@@ -7,7 +7,7 @@ on:
 
 jobs:
   validate-graphql:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v4
